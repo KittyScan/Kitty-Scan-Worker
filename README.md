@@ -1,5 +1,11 @@
 # 🐾 Carmel Worker — KittyScan Backend
 
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
+[![Claude](https://img.shields.io/badge/Anthropic-Claude%204-D97757?logo=anthropic&logoColor=white)](https://anthropic.com)
+[![StoreKit](https://img.shields.io/badge/Apple-StoreKit%202-000?logo=apple&logoColor=white)](https://developer.apple.com/storekit/)
+[![License](https://img.shields.io/badge/license-Source%20Available-blue.svg)](LICENSE)
+
 > Production-grade Cloudflare Worker that brokers Anthropic Claude vision
 > calls for the [KittyScan iOS app](https://github.com/KittyScan/Kitty-Scan),
 > with server-side Apple StoreKit verification, a tier-aware entitlement
@@ -26,42 +32,82 @@ goes through this Worker, which:
 
 ---
 
-## Architecture
+## System diagram
 
+```mermaid
+flowchart TB
+    subgraph iOS["iOS Client"]
+        StoreKit[StoreKit 2<br/>Transaction.verified]
+        Net[ClaudeService]
+    end
+
+    subgraph Worker["Cloudflare Worker (TS, ~1.5k LOC)"]
+        direction TB
+        Analyze[/POST /analyze/]
+        Verify[/POST /verify-receipt/]
+        Hook[/POST /webhook/apple/]
+
+        IpRl[checkAndIncrementIp]
+        EntGate[Entitlement Gate]
+        DevRl[checkAndIncrement]
+        Sel{Tier?}
+        Sonnet[Sonnet 4]
+        Haiku[Haiku 4.5]
+        CostTrack[trackAndMaybeAlert]
+        Apply[applyAppleTransaction<br/>idempotent]
+
+        Analyze --> IpRl --> EntGate --> DevRl --> Sel
+        Sel -- premium --> Sonnet
+        Sel -- free/pack --> Haiku
+        Sonnet --> CostTrack
+        Haiku --> CostTrack
+
+        Verify --> Apply
+        Hook --> Apply
+    end
+
+    KV[(Workers KV<br/>state)]
+    Anthropic([Anthropic API])
+    AppleAPI([Apple App Store<br/>Server API])
+
+    Net -->|HTTPS| Analyze
+    StoreKit -->|transactionId| Verify
+    IpRl <--> KV
+    DevRl <--> KV
+    EntGate <--> KV
+    CostTrack --> KV
+    Apply --> KV
+    Sonnet --> Anthropic
+    Haiku --> Anthropic
+    Verify --> AppleAPI
+    Hook --> AppleAPI
 ```
-                  iOS App (SwiftUI + StoreKit 2)
-                              │
-                              │  HTTPS  (X-Account-Token, X-Device-Id, X-Tier)
-                              ▼
-   ┌──────────────────────────────────────────────────────────────┐
-   │                  Cloudflare Worker (TypeScript)              │
-   │                                                              │
-   │   POST /analyze ────┐                                        │
-   │                     ├──▶ checkAndIncrementIp (KV)            │
-   │                     ├──▶ entitlement gate (KV ledger)        │
-   │                     ├──▶ checkAndIncrement device (KV)       │
-   │                     ├──▶ tier-aware model selection          │
-   │                     │      • subscriber → Sonnet 4           │
-   │                     │      • free / pack → Haiku 4.5         │
-   │                     ├──▶ callAnthropic                       │
-   │                     ├──▶ trackAndMaybeAlert (cost ledger)    │
-   │                     └──▶ consume entitlement / free counter  │
-   │                                                              │
-   │   POST /verify-receipt ─▶ Apple App Store Server API JWS    │
-   │                          ├──▶ bundle-id + token cross-check  │
-   │                          └──▶ applyAppleTransaction (ledger) │
-   │                                                              │
-   │   POST /webhook/apple ──▶ Apple JWS notification verify      │
-   │                          └──▶ subscription state reconcile   │
-   │                                                              │
-   │   POST /feedback ────────▶ KV record + Resend email forward  │
-   └─────────────────────────────────┬────────────────────────────┘
-                                     │
-                              ┌──────┴──────┐
-                              ▼             ▼
-                       Workers KV    Anthropic API
-                       (state)       (Claude vision)
+
+---
+
+## Receipt verification flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant iOS as iOS Client
+    participant Worker as Worker
+    participant Apple as Apple App Store<br/>Server API
+    participant KV as Workers KV
+
+    iOS->>Worker: POST /verify-receipt<br/>{transactionId, productId}<br/>X-Account-Token
+    Worker->>Worker: Sign ES256 JWT (WebCrypto)<br/>using .p8 PKCS#8 key
+    Worker->>Apple: GET /inApps/v1/transactions/{id}<br/>Authorization: Bearer <JWT>
+    Apple-->>Worker: signedTransactionInfo (JWS)
+    Worker->>Worker: Verify JWS signature<br/>+ decode payload
+    Worker->>Worker: Check bundleId<br/>Check appAccountToken
+    Worker->>KV: applyAppleTransaction<br/>(idempotent)
+    KV-->>Worker: ent updated
+    Worker-->>iOS: 200 {ok, tier, environment}
 ```
+
+The four guards (signature, bundleId, appAccountToken, idempotency key)
+together mean a forged receipt requires forging Apple's signature.
 
 ---
 
@@ -71,31 +117,15 @@ goes through this Worker, which:
 A single header (`X-Tier`) decides between two Claude model classes:
 
 ```ts
+const tier = (request.headers.get('X-Tier') ?? 'economy').toLowerCase();
 const model = tier === 'premium'
   ? (env.MODEL || 'claude-sonnet-4-6')          // accuracy
   : 'claude-haiku-4-5-20251001';                // ~6× cheaper
 ```
 
 The tier is signaled by the iOS client based on a server-verified StoreKit
-transaction — not the client-claimed tier. A jailbroken client setting
-`X-Tier: premium` still falls back to whatever the entitlement ledger
-proves they paid for.
-
-### Server-side Apple JWS verification
-`/verify-receipt` is the trust anchor for paid features:
-
-1. iOS posts the freshly-issued `transactionId` after `Transaction.verified`.
-2. Worker calls Apple App Store Server API with a signed ES256 JWT (signed
-   in WebCrypto from the .p8 PKCS#8 key).
-3. Apple returns the canonical transaction as a JWS — Worker verifies the
-   signature and decodes the payload.
-4. Cross-check `bundleId` (rejects replay from another app) and
-   `appAccountToken` (rejects grafting someone else's purchase).
-5. `applyAppleTransaction` writes a tier upgrade to the KV ledger, guarded
-   by an `isTransactionApplied` idempotency check.
-
-The Worker refuses to grant entitlement if the four Apple secrets aren't
-configured (returns 503 rather than fail-open).
+transaction. A jailbroken client setting `X-Tier: premium` still falls
+back to whatever the entitlement ledger proves they paid for.
 
 ### Three layers of abuse defense
 
@@ -105,7 +135,7 @@ configured (returns 503 rather than fail-open).
 | `checkAndIncrement` | `day:<deviceId>:<date>` + `month:<deviceId>:<month>` | Per-device daily / monthly quota — defense-in-depth. |
 | Entitlement ledger | `ent:<accountToken>` | The real quota. Free-tier counter (`free:<accountToken>`) is keyed by an iCloud-synced UUID so deleting the app no longer resets the trial. |
 
-All three back to the same Anthropic Console hard $20/mo Spend Limit. Worst
+All three back to the Anthropic Console hard $20/mo Spend Limit. Worst
 case: an attacker who somehow bypasses every layer still hits Anthropic's
 503 at $20.
 
@@ -113,16 +143,34 @@ case: an attacker who somehow bypasses every layer still hits Anthropic's
 
 ```ts
 const cost = inTok * INPUT_PRICE_PER_TOKEN + outTok * OUTPUT_PRICE_PER_TOKEN;
+const month = new Date().toISOString().slice(0, 7); // YYYY-MM
+const key = `cost:${month}`;
+const prev = parseFloat((await kv.get(key)) || '0');
 const next = prev + cost;
-await kv.put(`cost:${month}`, next.toFixed(6), { expirationTtl: 86_400 * 70 });
+await kv.put(key, next.toFixed(6), { expirationTtl: 86_400 * 70 });
+
+// Edge-triggered: fires exactly once per month even if traffic
+// stays above the line for the rest of the period.
 if (prev < alertThresholdUsd && next >= alertThresholdUsd) {
-  await sendAlert(webhook, month, next, env);    // fires exactly once per month
+  await sendAlert(webhook, month, next, env);
 }
 ```
 
-Token-by-token cost rolls into a monthly KV counter. The alert is
-edge-triggered (`prev < threshold && next >= threshold`) so the webhook
-fires exactly once per month even if traffic stays above the line.
+### Defensive verify-receipt
+The Worker refuses to grant entitlement if the four Apple secrets aren't
+configured (returns 503 rather than fail-open):
+
+```ts
+if (!e.APPLE_PRIVATE_KEY || !e.APPLE_BUNDLE_ID
+    || !e.APPLE_KEY_ID  || !e.APPLE_ISSUER_ID) {
+  console.warn('[verify-receipt] Apple secrets not configured');
+  return json({ error: 'verification_unavailable',
+                detail: 'apple_secrets_not_set' }, 503);
+}
+```
+
+A misconfigured deploy stops payments rather than silently granting Pro
+to everyone.
 
 ---
 
@@ -191,4 +239,4 @@ npx wrangler deploy
 
 ## License
 
-All rights reserved. Source available for portfolio review.
+[Source-available for portfolio review.](LICENSE)
