@@ -1,0 +1,44 @@
+name = "carmel-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Rate-limit + cost counters stored in KV.
+# Run once before first deploy:
+#   wrangler kv:namespace create "RATE_KV"
+# then paste the returned id below (replace the placeholder).
+[[kv_namespaces]]
+binding = "RATE_KV"
+id = "e58cfd1125fa45e694b0ee39667ae5dc"
+
+[vars]
+ENVIRONMENT = "production"
+# Model can be overridden without redeploy via `wrangler secret`, but default is safe
+MODEL = "claude-sonnet-4-6"
+# Limits (per Device ID) — defense-in-depth on top of the entitlement ledger.
+# The entitlement ledger is the real quota source; these are abuse caps.
+# Pro Monthly entitlement = 50 analyses/month, so MONTH_LIMIT must exceed that
+# (else legit Pro users get blocked). 80 allows Pro + a one-pack top-up.
+DAY_LIMIT = "5"
+MONTH_LIMIT = "80"
+# Alert at 1/4 of Anthropic's hard $20/mo Spend Limit so we catch creeping cost early.
+COST_ALERT_USD = "5"
+
+# Secrets set with:
+#   wrangler secret put ANTHROPIC_KEY
+#
+# (optional, for email alerts via Resend or similar)
+#   wrangler secret put ALERT_WEBHOOK
+#
+# Apple App Store Server API (required for production receipt verification +
+# webhook bundleId pinning):
+#   wrangler secret put APPLE_BUNDLE_ID         # e.g. "com.jingyan.CatHealthApp"
+#   wrangler secret put APPLE_KEY_ID            # 10-char ID from App Store Connect
+#   wrangler secret put APPLE_ISSUER_ID         # UUID issuer from API key page
+#   wrangler secret put APPLE_PRIVATE_KEY       # PEM body — paste in single-line form
+
+# Custom domain — enable after DNS is pointed at Cloudflare and domain is registered.
+# [[routes]]
+# pattern = "api.carmel.app/*"
+# custom_domain = true

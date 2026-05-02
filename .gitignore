@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build / Wrangler
+dist/
+.wrangler/
+
+# Secrets — never commit. Stored as Cloudflare Worker secrets via `wrangler secret put`.
+.dev.vars
+.env
+.env.local
+*.p8
+*.pem
+secrets/
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
