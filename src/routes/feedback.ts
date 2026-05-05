@@ -32,7 +32,10 @@ interface FeedbackBody {
   language?: string;
 }
 
-const ALLOWED_CATEGORIES = new Set(['bug', 'feature', 'billing', 'general']);
+// `rating` is the per-report 👍/👎 footer in HealthReportView. Lighter than
+// the bug-report flow — text is "👍" or "👎: <reason>" — but we route through
+// the same /feedback ingest so a single KV prefix holds everything.
+const ALLOWED_CATEGORIES = new Set(['bug', 'feature', 'billing', 'general', 'rating']);
 
 export async function handleFeedback(
   request: Request,
