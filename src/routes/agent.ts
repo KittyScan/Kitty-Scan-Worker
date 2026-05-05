@@ -5,10 +5,11 @@
  *   • Authenticates the device + account-token.
  *   • Enforces per-IP / per-device rate limits (defense-in-depth on top
  *     of the entitlement ledger, identical to /analyze).
- *   • If `consume: true`, gates on entitlement and decrements once the
- *     Anthropic call succeeds. Intermediate tool-resolution rounds set
- *     `consume: false` so a 4-step agent run only costs the user 1 free
- *     analysis (or one Pro slot), not 4.
+ *   • Gates on entitlement (Pro-only) AND remaining quota on every turn
+ *     so a 0-quota user can't burn Worker time across 4 tool rounds.
+ *     Decrement happens out-of-band — the iOS client calls
+ *     /consume-analysis exactly once after the loop completes
+ *     successfully so a 4-step run still costs the user just one slot.
  *   • Forwards the messages array (with optional tools) to Claude.
  *     Supports both buffered JSON and SSE streaming — streaming is what
  *     the final synthesis turn uses so the report types in real-time.
