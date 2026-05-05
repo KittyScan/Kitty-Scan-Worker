@@ -91,6 +91,89 @@ export async function callAnthropic(
   };
 }
 
+// ===========================================================================
+// Messages-API variants — used by the multi-turn agent endpoint (/agent).
+// Where `callAnthropic` builds the messages array internally (prompt+image
+// in a single user message), these accept an opaque messages array the
+// caller has already assembled. That's what makes multi-turn tool use
+// possible: the iOS client appends `tool_result` blocks to the array,
+// resends, and the server just forwards the lot to Anthropic.
+// ===========================================================================
+
+export interface MessagesInput {
+  messages: Array<Record<string, unknown>>;
+  tools?: Array<Record<string, unknown>>;
+  max_tokens?: number;
+}
+
+export async function callAnthropicMessages(
+  input: MessagesInput,
+  apiKey: string,
+  model: string,
+): Promise<AnthropicResult> {
+  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 4000);
+  const payload: Record<string, unknown> = {
+    model,
+    max_tokens: maxTokens,
+    messages: input.messages,
+  };
+  if (input.tools && input.tools.length > 0) {
+    payload.tools = input.tools;
+  }
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    return { ok: false, status: resp.status, detail: detail.slice(0, 400) };
+  }
+  const data = (await resp.json()) as { usage?: { input_tokens?: number; output_tokens?: number } };
+  return { ok: true, data, usage: data.usage ?? {}, status: 200 };
+}
+
+export async function callAnthropicMessagesStream(
+  input: MessagesInput,
+  apiKey: string,
+  model: string,
+): Promise<AnthropicStreamResult> {
+  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 4000);
+  const payload: Record<string, unknown> = {
+    model,
+    max_tokens: maxTokens,
+    stream: true,
+    messages: input.messages,
+  };
+  if (input.tools && input.tools.length > 0) {
+    payload.tools = input.tools;
+  }
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'accept': 'text/event-stream',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok || !resp.body) {
+    const detail = resp.body ? await resp.text() : '(no body)';
+    return { ok: false, status: resp.status, detail: detail.slice(0, 400) };
+  }
+  const [forClient, forSniff] = resp.body.tee();
+  const usagePromise = sniffUsage(forSniff);
+  return { ok: true, body: forClient, usagePromise };
+}
+
 /**
  * Streaming variant. Same payload shape as `callAnthropic` plus `stream: true`.
  * Returns an SSE body the caller can pipe straight back to its client, plus a

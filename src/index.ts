@@ -1,4 +1,5 @@
 import { handleAnalyze } from './routes/analyze';
+import { handleAgent } from './routes/agent';
 import { handleVerifyReceipt } from './routes/verify-receipt';
 import { handleAppleWebhook } from './routes/apple-webhook';
 import { handleFeedback } from './routes/feedback';
@@ -49,6 +50,13 @@ export default {
 
       if (url.pathname === '/analyze' && request.method === 'POST') {
         return await handleAnalyze(request, env, ctx);
+      }
+
+      // Multi-turn agent loop. iOS owns the loop; this just brokers a single
+      // Claude call per turn (with optional tools, optional streaming, and
+      // a `consume` flag so only the final turn decrements quota).
+      if (url.pathname === '/agent' && request.method === 'POST') {
+        return await handleAgent(request, env, ctx);
       }
 
       if (url.pathname === '/verify-receipt' && request.method === 'POST') {
