@@ -1,7 +1,7 @@
 import type { Env } from '../index';
 import { json } from '../lib/http';
 import { checkAndIncrement, checkAndIncrementIp } from '../lib/ratelimit';
-import { callAnthropic } from '../lib/anthropic';
+import { callAnthropic, callAnthropicStream } from '../lib/anthropic';
 import { trackAndMaybeAlert } from '../lib/costs';
 import {
   isValidToken,
@@ -17,6 +17,8 @@ interface AnalyzeBody {
   image_base64?: string;
   prompt?: string;
   max_tokens?: number;
+  /** Opt-in: if true, response is `text/event-stream` (SSE) instead of buffered JSON. */
+  stream?: boolean;
 }
 
 const DEVICE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
@@ -101,6 +103,61 @@ export async function handleAnalyze(request: Request, env: Env, ctx: ExecutionCo
   const model = tier === 'premium'
     ? (env.MODEL || 'claude-sonnet-4-6')
     : 'claude-haiku-4-5-20251001';
+
+  // Streaming branch — opt-in via `stream: true` in the body. Used by /analyze
+  // from the iOS client to bring perceived latency down. Same gating + bookkeeping
+  // as the buffered path; only the response shape differs.
+  if (body.stream === true) {
+    const sres = await callAnthropicStream(
+      { image_base64: body.image_base64, prompt: body.prompt, max_tokens: body.max_tokens },
+      env.ANTHROPIC_KEY,
+      model,
+    );
+    if (!sres.ok) {
+      return json({ error: 'upstream', status: sres.status, detail: sres.detail }, sres.status);
+    }
+
+    // Cost + entitlement bookkeeping happens after the stream finishes —
+    // the usagePromise resolves once the final `message_delta` is read out
+    // of the tee'd branch. Same idempotency guarantees as the buffered
+    // path (entitlement ledger only consumes on a successful response).
+    ctx.waitUntil((async () => {
+      try {
+        const usage = await sres.usagePromise;
+        await trackAndMaybeAlert(
+          usage,
+          env.RATE_KV,
+          parseFloat(env.COST_ALERT_USD || '15'),
+          env.ALERT_WEBHOOK,
+          env.ENVIRONMENT,
+        );
+        if (useEntitlement && isValidToken(accountToken)) {
+          const ent = await loadEntitlement(accountToken, env.RATE_KV);
+          if (ent.tier === 'free') {
+            await incrementFreeUsed(accountToken, env.RATE_KV);
+          } else {
+            consumeAnalyze(ent);
+            await saveEntitlement(accountToken, ent, env.RATE_KV);
+          }
+        }
+      } catch (e) {
+        console.warn('[analyze stream] post-stream bookkeeping failed', e);
+      }
+    })());
+
+    return new Response(sres.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Rate-Day': String(rl.dayCount),
+        'X-Rate-Month': String(rl.monthCount),
+        // Permits the iOS client to read these headers from the response.
+        'Access-Control-Expose-Headers': 'X-Rate-Day, X-Rate-Month',
+      },
+    });
+  }
 
   const result = await callAnthropic(
     { image_base64: body.image_base64, prompt: body.prompt, max_tokens: body.max_tokens },
