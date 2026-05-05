@@ -24,6 +24,10 @@ export interface Env {
   // `wrangler kv key list --prefix="fb:"`).
   RESEND_API_KEY?: string;
   FEEDBACK_EMAIL?: string;
+
+  // Auth for the /admin/feedback dashboard. Set via:
+  //   wrangler secret put ADMIN_TOKEN
+  ADMIN_TOKEN?: string;
 }
 
 export default {

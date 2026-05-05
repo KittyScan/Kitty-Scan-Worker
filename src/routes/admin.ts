@@ -36,9 +36,12 @@ export async function handleAdminFeedback(
 ): Promise<Response> {
   const url = new URL(request.url);
   const token = url.searchParams.get('token') ?? '';
-  const adminToken = (env as unknown as { ADMIN_TOKEN?: string }).ADMIN_TOKEN ?? '';
+  const adminToken = env.ADMIN_TOKEN ?? '';
   if (!adminToken) {
-    return new Response('admin token not configured (set ADMIN_TOKEN secret)',
+    // The interactive `wrangler secret put` prompt has occasionally
+    // dropped the pasted value silently; use stdin instead:
+    //   echo -n "<value>" | wrangler secret put ADMIN_TOKEN
+    return new Response('admin token not configured (set ADMIN_TOKEN secret via stdin pipe)',
                         { status: 503 });
   }
   if (token !== adminToken) {
