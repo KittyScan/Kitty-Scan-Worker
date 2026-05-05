@@ -28,24 +28,25 @@ import { trackAndMaybeAlert } from '../lib/costs';
 import {
   isValidToken,
   loadEntitlement,
-  saveEntitlement,
-  consumeAnalyze,
   canAnalyze,
   getFreeUsed,
-  incrementFreeUsed,
 } from '../lib/entitlement';
 
 interface AgentBody {
   messages?: unknown;
   tools?: unknown;
   max_tokens?: number;
-  /** `true` only on the final turn of the agent loop — the one that earns
-   *  the right to type the report into the user's screen. Intermediate
-   *  rounds (tool resolution) set this to `false`. */
-  consume?: boolean;
   /** When `true` the response is `text/event-stream`. */
   stream?: boolean;
 }
+
+// Hard-coded to the cheaper Haiku 4.5 model. The agent's value comes from
+// multi-turn tool use and history/diary integration, not raw vision depth —
+// we trade a bit of single-call accuracy for ~3x lower per-token cost so
+// Pro user economics stay in the same ballpark as the single-shot Sonnet
+// /analyze flow. The user-visible upgrade is the agentic depth, not the
+// underlying model.
+const AGENT_MODEL = 'claude-haiku-4-5-20251001';
 
 const DEVICE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 
@@ -80,6 +81,11 @@ export async function handleAgent(
 
   // Pro-only gating. We need the account token to check entitlement at all,
   // and once we have it, the tier check rejects everyone except active subs.
+  // Quota is also checked on every turn (cheap KV read) so a 0-quota user
+  // doesn't burn Worker time running 4 tool turns before being told no.
+  // Actual decrement happens out-of-band via /consume-analysis, called by
+  // the iOS client once after the loop ends successfully — that way a
+  // 4-turn agent run still costs the user just one Pro analysis slot.
   const accountToken = request.headers.get('X-Account-Token');
   if (!isValidToken(accountToken)) {
     return json({ error: 'missing_or_invalid_account_token' }, 400);
@@ -87,6 +93,11 @@ export async function handleAgent(
   const ent = await loadEntitlement(accountToken, env.RATE_KV);
   if (ent.tier !== 'sub') {
     return json({ error: 'pro_required', tier: ent.tier }, 402);
+  }
+  const freeUsed = await getFreeUsed(accountToken, env.RATE_KV);
+  const gate = canAnalyze(ent, freeUsed);
+  if (!gate.allowed) {
+    return json({ error: 'quota_exhausted', reason: gate.reason, tier: ent.tier }, 402);
   }
 
   let body: AgentBody;
@@ -100,27 +111,16 @@ export async function handleAgent(
     return json({ error: 'missing_messages' }, 400);
   }
 
-  // Only the final turn (the one that produces the report the user keeps)
-  // gets quota-consumed. Intermediate tool rounds slip past for free —
-  // the user shouldn't be billed N× for a single photo.
-  if (body.consume === true) {
-    const freeUsed = await getFreeUsed(accountToken, env.RATE_KV);
-    const gate = canAnalyze(ent, freeUsed);
-    if (!gate.allowed) {
-      return json({ error: 'quota_exhausted', reason: gate.reason, tier: ent.tier }, 402);
-    }
-  }
-
   const sharedArgs = {
     messages: body.messages as Array<Record<string, unknown>>,
     tools: Array.isArray(body.tools) ? (body.tools as Array<Record<string, unknown>>) : undefined,
     max_tokens: body.max_tokens,
   };
-  const model = env.MODEL || 'claude-sonnet-4-6';
+  const model = AGENT_MODEL;
 
-  // Streaming branch — final synthesis turn always streams so the report
-  // surfaces token-by-token. Intermediate tool turns are short and not
-  // worth streaming (Claude usually responds with just a tool_use block).
+  // Streaming branch — for the final synthesis turn (lets the report type
+  // out token-by-token). Intermediate tool turns are short and not worth
+  // streaming (Claude usually responds with just a tool_use block).
   if (body.stream === true) {
     const sres = await callAnthropicMessagesStream(sharedArgs, env.ANTHROPIC_KEY, model);
     if (!sres.ok) {
@@ -136,19 +136,8 @@ export async function handleAgent(
           env.ALERT_WEBHOOK,
           env.ENVIRONMENT,
         );
-        if (body.consume === true) {
-          // Re-load — the in-memory `ent` from above may be stale if the
-          // user happened to make a parallel purchase mid-stream.
-          const fresh = await loadEntitlement(accountToken, env.RATE_KV);
-          if (fresh.tier === 'free') {
-            await incrementFreeUsed(accountToken, env.RATE_KV);
-          } else {
-            consumeAnalyze(fresh);
-            await saveEntitlement(accountToken, fresh, env.RATE_KV);
-          }
-        }
       } catch (e) {
-        console.warn('[agent stream] post-stream bookkeeping failed', e);
+        console.warn('[agent stream] cost tracking failed', e);
       }
     })());
 
@@ -165,9 +154,9 @@ export async function handleAgent(
     });
   }
 
-  // Buffered branch — used by intermediate tool rounds. Returns Claude's
+  // Buffered branch — used by every tool-resolution turn. Returns Claude's
   // full response (which usually contains tool_use blocks for the iOS
-  // client to resolve and feed back).
+  // client to resolve and feed back on the next turn).
   const result = await callAnthropicMessages(sharedArgs, env.ANTHROPIC_KEY, model);
   if (!result.ok) {
     return json({ error: 'upstream', status: result.status, detail: result.detail }, result.status);
@@ -181,17 +170,6 @@ export async function handleAgent(
       env.ENVIRONMENT,
     ),
   );
-  if (body.consume === true) {
-    ctx.waitUntil((async () => {
-      const fresh = await loadEntitlement(accountToken, env.RATE_KV);
-      if (fresh.tier === 'free') {
-        await incrementFreeUsed(accountToken, env.RATE_KV);
-      } else {
-        consumeAnalyze(fresh);
-        await saveEntitlement(accountToken, fresh, env.RATE_KV);
-      }
-    })());
-  }
   return json(result.data, 200, {
     'X-Rate-Day': String(rl.dayCount),
     'X-Rate-Month': String(rl.monthCount),

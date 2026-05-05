@@ -1,5 +1,6 @@
 import { handleAnalyze } from './routes/analyze';
 import { handleAgent } from './routes/agent';
+import { handleConsumeAnalysis } from './routes/consume';
 import { handleVerifyReceipt } from './routes/verify-receipt';
 import { handleAppleWebhook } from './routes/apple-webhook';
 import { handleFeedback } from './routes/feedback';
@@ -53,10 +54,16 @@ export default {
       }
 
       // Multi-turn agent loop. iOS owns the loop; this just brokers a single
-      // Claude call per turn (with optional tools, optional streaming, and
-      // a `consume` flag so only the final turn decrements quota).
+      // Claude call per turn. Decoupled from quota — the iOS client calls
+      // /consume-analysis once after the loop completes successfully.
       if (url.pathname === '/agent' && request.method === 'POST') {
         return await handleAgent(request, env, ctx);
+      }
+
+      // One-shot quota decrement. Pairs with /agent (and any future flow
+      // that wants to decouple "do work" from "charge for it").
+      if (url.pathname === '/consume-analysis' && request.method === 'POST') {
+        return await handleConsumeAnalysis(request, env, ctx);
       }
 
       if (url.pathname === '/verify-receipt' && request.method === 'POST') {
