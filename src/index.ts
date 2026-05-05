@@ -1,6 +1,7 @@
 import { handleAnalyze } from './routes/analyze';
 import { handleAgent } from './routes/agent';
 import { handleConsumeAnalysis } from './routes/consume';
+import { handleAdminFeedback } from './routes/admin';
 import { handleVerifyReceipt } from './routes/verify-receipt';
 import { handleAppleWebhook } from './routes/apple-webhook';
 import { handleFeedback } from './routes/feedback';
@@ -79,6 +80,12 @@ export default {
       // In-app feedback / bug reports. Body lands in KV under "fb:" prefix.
       if (url.pathname === '/feedback' && request.method === 'POST') {
         return await handleFeedback(request, env, ctx);
+      }
+
+      // Admin dashboard for the feedback ledger. HTML page; auth via
+      // ?token=<ADMIN_TOKEN> matched against a Worker secret.
+      if (url.pathname === '/admin/feedback' && request.method === 'GET') {
+        return await handleAdminFeedback(request, env, ctx);
       }
 
       return json({ error: 'not_found' }, 404);
