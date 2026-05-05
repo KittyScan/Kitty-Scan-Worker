@@ -86,9 +86,12 @@ export default {
         return await handleFeedback(request, env, ctx);
       }
 
-      // Admin dashboard for the feedback ledger. HTML page; auth via
-      // ?token=<ADMIN_TOKEN> matched against a Worker secret.
-      if (url.pathname === '/admin/feedback' && request.method === 'GET') {
+      // Admin dashboard. Multi-section (overview / activity / feedback /
+      // users / costs) — pick via ?section=. Auth via ?token=<ADMIN_TOKEN>
+      // matched against a Worker secret. /admin/feedback kept as an alias
+      // for the original bookmark.
+      if ((url.pathname === '/admin' || url.pathname === '/admin/feedback')
+          && request.method === 'GET') {
         return await handleAdminFeedback(request, env, ctx);
       }
 

@@ -3,6 +3,7 @@ import { json } from '../lib/http';
 import { checkAndIncrement, checkAndIncrementIp } from '../lib/ratelimit';
 import { callAnthropic, callAnthropicStream } from '../lib/anthropic';
 import { trackAndMaybeAlert } from '../lib/costs';
+import { logCall } from '../lib/analytics';
 import {
   isValidToken,
   loadEntitlement,
@@ -24,6 +25,7 @@ interface AnalyzeBody {
 const DEVICE_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 
 export async function handleAnalyze(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const __started = Date.now();
   const deviceId = request.headers.get('X-Device-Id');
   if (!deviceId || !DEVICE_ID_RE.test(deviceId)) {
     return json({ error: 'missing_or_invalid_device_id' }, 400);
@@ -195,6 +197,26 @@ export async function handleAnalyze(request: Request, env: Env, ctx: ExecutionCo
       }
     })());
   }
+
+  // Per-call activity log — feeds /admin Activity panel. Ride
+  // ctx.waitUntil so the user response isn't blocked by the KV write.
+  ctx.waitUntil((async () => {
+    const tierAtCall = useEntitlement && accountToken
+      ? (await loadEntitlement(accountToken, env.RATE_KV)).tier
+      : 'free';
+    await logCall(env.RATE_KV, {
+      route: 'analyze',
+      status: 'ok',
+      model,
+      tier: tierAtCall,
+      durationMs: Date.now() - __started,
+      inputTokens: result.usage.input_tokens,
+      outputTokens: result.usage.output_tokens,
+      tokenShort: accountToken?.slice(0, 8),
+      deviceShort: deviceId.slice(0, 8),
+      country: request.headers.get('CF-IPCountry') ?? undefined,
+    });
+  })());
 
   return json(result.data, 200, {
     'X-Rate-Day': String(rl.dayCount),

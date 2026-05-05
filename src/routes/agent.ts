@@ -26,6 +26,7 @@ import { json } from '../lib/http';
 import { checkAndIncrement, checkAndIncrementIp } from '../lib/ratelimit';
 import { callAnthropicMessages, callAnthropicMessagesStream } from '../lib/anthropic';
 import { trackAndMaybeAlert } from '../lib/costs';
+import { logCall } from '../lib/analytics';
 import {
   isValidToken,
   loadEntitlement,
@@ -56,6 +57,7 @@ export async function handleAgent(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  const __started = Date.now();
   const deviceId = request.headers.get('X-Device-Id');
   if (!deviceId || !DEVICE_ID_RE.test(deviceId)) {
     return json({ error: 'missing_or_invalid_device_id' }, 400);
@@ -137,6 +139,18 @@ export async function handleAgent(
           env.ALERT_WEBHOOK,
           env.ENVIRONMENT,
         );
+        await logCall(env.RATE_KV, {
+          route: 'agent',
+          status: 'ok',
+          model,
+          tier: ent.tier,
+          durationMs: Date.now() - __started,
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          tokenShort: accountToken.slice(0, 8),
+          deviceShort: deviceId.slice(0, 8),
+          country: request.headers.get('CF-IPCountry') ?? undefined,
+        });
       } catch (e) {
         console.warn('[agent stream] cost tracking failed', e);
       }
@@ -171,6 +185,18 @@ export async function handleAgent(
       env.ENVIRONMENT,
     ),
   );
+  ctx.waitUntil(logCall(env.RATE_KV, {
+    route: 'agent',
+    status: 'ok',
+    model,
+    tier: ent.tier,
+    durationMs: Date.now() - __started,
+    inputTokens: result.usage.input_tokens,
+    outputTokens: result.usage.output_tokens,
+    tokenShort: accountToken.slice(0, 8),
+    deviceShort: deviceId.slice(0, 8),
+    country: request.headers.get('CF-IPCountry') ?? undefined,
+  }));
   return json(result.data, 200, {
     'X-Rate-Day': String(rl.dayCount),
     'X-Rate-Month': String(rl.monthCount),
