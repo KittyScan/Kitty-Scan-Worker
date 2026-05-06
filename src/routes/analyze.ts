@@ -161,8 +161,19 @@ export async function handleAnalyze(request: Request, env: Env, ctx: ExecutionCo
     });
   }
 
+  // Eval runs pin temperature to 0 for deterministic output — without
+  // this, swapping a prompt and seeing a 0.3-point judge swing tells you
+  // nothing (could be the prompt OR the model's natural variance).
+  // Production calls skip the header and Anthropic defaults to 1.0.
+  const isEvalRun = request.headers.get('X-Eval-Run') === '1';
+
   const result = await callAnthropic(
-    { image_base64: body.image_base64, prompt: body.prompt, max_tokens: body.max_tokens },
+    {
+      image_base64: body.image_base64,
+      prompt: body.prompt,
+      max_tokens: body.max_tokens,
+      temperature: isEvalRun ? 0 : undefined,
+    },
     env.ANTHROPIC_KEY,
     model,
   );

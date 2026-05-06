@@ -17,6 +17,10 @@ export interface AnalyzeInput {
   prompt: string;
   /** Optional override, clamped to [256, 2000] */
   max_tokens?: number;
+  /** Optional sampling temperature. Eval runs pass 0 for determinism so
+   *  prompt-change effects aren't masked by the model's own variance.
+   *  Production omits this and Anthropic defaults to 1.0. */
+  temperature?: number;
 }
 
 export interface AnthropicSuccess {
@@ -61,11 +65,14 @@ export async function callAnthropic(
   }
   content.push({ type: 'text', text: input.prompt });
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     model,
     max_tokens: maxTokens,
     messages: [{ role: 'user', content }],
   };
+  if (input.temperature !== undefined) {
+    payload.temperature = input.temperature;
+  }
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
