@@ -1,0 +1,31 @@
+{
+  "id": "17-multi-cat",
+  "description_zh": "一张照片里有两只猫,模型应主动要求重拍单猫",
+  "description_en": "Two cats in one photo — model should proactively ask user to retake with single cat",
+  "image": "images/17-multi-cat.jpg",
+  "context": {
+    "cat": {
+      "name": "Mochi",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "must_contain", "field": "summary", "substrings": ["两只", "multiple", "single", "重拍", "single cat", "一只"], "rationale": "must surface the multi-cat issue and request a single-cat retake" }
+  ],
+  "qualitative_criteria_zh": [
+    "应该主动告知主人有两只猫,无法准确分析哪一只",
+    "应该建议主人重新拍一张'只有 Mochi 单独入镜'的照片",
+    "不应该硬选其中一只来评分,也不应该把两只混着评"
+  ],
+  "qualitative_criteria_en": [
+    "Should proactively note that two cats are visible and analysis can't reliably attribute findings",
+    "Should ask the owner to retake with just Mochi alone in the frame",
+    "Should NOT pick one cat at random or merge findings across both"
+  ]
+}

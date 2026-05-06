@@ -1,0 +1,40 @@
+{
+  "id": "22-conflicting-data",
+  "description_zh": "照片里猫看起来明显瘦了,但 history 体重一直正常",
+  "description_en": "Photo shows visibly thinner cat, but history records show normal weight",
+  "image": "images/22-conflicting-data.jpg",
+  "context": {
+    "cat": {
+      "name": "Slim",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "sex": "male",
+      "neuter": true
+    },
+    "history": [
+      { "daysAgo": 60, "healthScore": 85, "summary": "体重 4.5kg,体型正常" },
+      { "daysAgo": 30, "healthScore": 84, "summary": "体重 4.4kg,正常" }
+    ],
+    "diary": [
+      { "daysAgo": 7, "meals": 1, "water": 1, "mood": 2, "discomfort": false, "notes": "胃口减少", "weightGrams": 4200 },
+      { "daysAgo": 3, "meals": 1, "water": 1, "mood": 2, "discomfort": true,  "notes": "明显吃得少", "weightGrams": 4000 },
+      { "daysAgo": 1, "meals": 1, "water": 1, "mood": 2, "discomfort": true,  "notes": "" }
+    ],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "must_contain", "field": "summary",          "substrings": ["体重", "weight", "瘦", "thin"], "rationale": "must call out the weight loss conflict" },
+    { "type": "score_range",  "field": "subScores.posture","min": 0, "max": 75,                            "rationale": "visible weight loss should pull posture down" },
+    { "type": "array_min",    "field": "suggestions",      "min": 1,                                       "rationale": "weight-loss-with-cause-unknown warrants action" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须发现照片(瘦)和 history(正常)的冲突,不能只看一边",
+    "应该计算出体重下降幅度(从 4.4kg 到 4.0kg 是约 9% 下降)",
+    "原因不明的体重下降应建议兽医检查 — 可能是疾病信号"
+  ],
+  "qualitative_criteria_en": [
+    "Must spot the conflict between photo (thinner) and history (normal weight) — don't ignore one side",
+    "Should quantify the loss (4.4kg → 4.0kg ≈ 9% drop)",
+    "Unexplained weight loss warrants a vet check — could be a disease signal"
+  ]
+}

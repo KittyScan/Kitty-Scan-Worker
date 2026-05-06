@@ -1,0 +1,32 @@
+{
+  "id": "21-empty-history",
+  "description_zh": "新用户首次使用,完全没有 history 和 diary 数据",
+  "description_en": "Brand-new user — zero history and diary data",
+  "image": "images/21-empty-history.jpg",
+  "context": {
+    "cat": {
+      "name": "Hazel",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "must_not_contain", "field": "summary",            "substrings": ["上次", "last time", "previously", "之前的检测"], "rationale": "no history → cannot reference past checks" },
+    { "type": "array_max",         "field": "warnings",          "max": 0,                                                          "rationale": "no historical signal → no derived warning unless photo itself shows urgent" }
+  ],
+  "qualitative_criteria_zh": [
+    "应该明确这是首次检测,不能编造'对比上次'",
+    "不能说'根据之前的趋势'之类不存在的话",
+    "可以提一下'下次会有趋势数据,会更准确',为后续做铺垫"
+  ],
+  "qualitative_criteria_en": [
+    "Should acknowledge this is a first scan — must NOT fabricate 'compared to last check'",
+    "Must not say 'based on previous trends' — there are none",
+    "May mention 'next time we'll have trend data' to set expectations for future scans"
+  ]
+}

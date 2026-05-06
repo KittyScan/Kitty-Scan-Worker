@@ -1,0 +1,41 @@
+{
+  "id": "11-overweight-cat",
+  "description_zh": "明显肥胖的猫,history 显示体重持续上升",
+  "description_en": "Visibly overweight cat, history shows steady gain",
+  "image": "images/11-overweight-cat.jpg",
+  "context": {
+    "cat": {
+      "name": "Butter",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "sex": "male",
+      "neuter": true,
+      "knownIssues": ["容易肥胖"]
+    },
+    "history": [
+      { "daysAgo": 60, "healthScore": 82, "summary": "稍胖,需注意饮食" },
+      { "daysAgo": 30, "healthScore": 78, "summary": "继续胖了一点" }
+    ],
+    "diary": [
+      { "daysAgo": 5, "meals": 4, "water": 2, "mood": 3, "discomfort": false, "notes": "吃太多" },
+      { "daysAgo": 3, "meals": 4, "water": 2, "mood": 3, "discomfort": false, "notes": "" },
+      { "daysAgo": 1, "meals": 4, "water": 2, "mood": 3, "discomfort": false, "notes": "懒得动" }
+    ],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range", "field": "subScores.posture", "min": 0, "max": 70, "rationale": "obesity counts under posture / body condition" },
+    { "type": "must_contain", "field": "postureCondition", "substrings": ["胖", "weight", "fat", "overweight"], "rationale": "must call out the body condition" },
+    { "type": "array_min",   "field": "suggestions",      "min": 2, "rationale": "weight management needs concrete actions" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须明确指出体重问题,不能拐弯抹角",
+    "建议应该具体(减少喂食量/增加玩耍时间),不只是'多注意'",
+    "应该引用 history 显示的'持续上升'趋势,不只看当下"
+  ],
+  "qualitative_criteria_en": [
+    "Must directly address the weight issue, not skirt around it",
+    "Suggestions must be concrete (reduce meal portions, more play time), not vague 'pay attention'",
+    "Should reference the upward trend in history, not just today's snapshot"
+  ]
+}

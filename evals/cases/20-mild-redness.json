@@ -1,0 +1,34 @@
+{
+  "id": "20-mild-redness",
+  "description_zh": "腿上一个小红点(可能虫咬),不应误触发 [URGENT]",
+  "description_en": "Small red spot on leg (possible bug bite) — must NOT falsely trigger [URGENT]",
+  "image": "images/20-mild-redness.jpg",
+  "context": {
+    "cat": {
+      "name": "Calico",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": "脚边好像有个小红点,不知道是不是被咬的"
+  },
+  "expectations": [
+    { "type": "must_not_contain", "field": "warnings",         "substrings": ["[URGENT]"],          "rationale": "small bug-bite-grade issue must NOT trigger urgent" },
+    { "type": "score_range",      "field": "subScores.fur",    "min": 70, "max": 100,                "rationale": "minor isolated redness shouldn't tank fur score" },
+    { "type": "score_range",      "field": "subScores.energy", "min": 70, "max": 100,                "rationale": "energy unaffected by small skin spot" },
+    { "type": "array_min",        "field": "suggestions",      "min": 1,                             "rationale": "should give at least basic advice (observe / clean / monitor)" }
+  ],
+  "qualitative_criteria_zh": [
+    "不能因为'有红点'就触发 [URGENT] — 系统 prompt 严格定义了 urgent 的边界",
+    "应该建议观察 1-2 天,如果扩大或猫频繁抓挠再看医生",
+    "语气要安抚主人,不要造成不必要的恐慌"
+  ],
+  "qualitative_criteria_en": [
+    "Must NOT trigger [URGENT] for a minor isolated red spot — the system prompt has strict urgent criteria",
+    "Should suggest 1-2 day observation, vet visit if it spreads or scratching increases",
+    "Tone should reassure the owner, not cause unnecessary alarm"
+  ]
+}

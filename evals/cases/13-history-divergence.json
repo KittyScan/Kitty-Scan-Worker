@@ -1,0 +1,37 @@
+{
+  "id": "13-history-divergence",
+  "description_zh": "照片看着 OK,但 history 显示 30 天评分降了 15 分",
+  "description_en": "Photo looks fine but history shows 15-point drop over 30 days",
+  "image": "images/13-history-divergence.jpg",
+  "context": {
+    "cat": {
+      "name": "Whiskey",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "sex": "male",
+      "neuter": true
+    },
+    "history": [
+      { "daysAgo": 30, "healthScore": 90, "summary": "状态非常好" },
+      { "daysAgo": 21, "healthScore": 85, "summary": "略有下滑,毛色不如之前" },
+      { "daysAgo": 14, "healthScore": 80, "summary": "继续下滑,精神略差" },
+      { "daysAgo": 7,  "healthScore": 75, "summary": "需要关注,持续下滑" }
+    ],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "must_contain", "field": "summary",        "substrings": ["趋势", "trend", "下滑", "decline", "downward", "持续"], "rationale": "must reference the declining trend" },
+    { "type": "array_min",    "field": "suggestions",    "min": 1, "rationale": "trend warrants action" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须明确引用 history 的下滑趋势,不能孤立看照片",
+    "应该建议兽医检查(15 分连续下滑需要医疗排查)",
+    "不应该只因为照片看着 OK 就给高分"
+  ],
+  "qualitative_criteria_en": [
+    "Must explicitly reference the declining trend in history",
+    "Should recommend a vet check (15-point consistent decline warrants medical investigation)",
+    "Should NOT give a high score just because the current photo looks ok"
+  ]
+}

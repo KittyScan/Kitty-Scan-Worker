@@ -63,16 +63,18 @@ async function main() {
   await fs.mkdir(CACHE_DIR, { recursive: true });
 
   const results: CaseResult[] = [];
-  let skipped = 0;
+  // `skipped` is now reserved for true skips (e.g. config-disabled cases
+  // in the future). Cases without images run in context-only mode and
+  // count as completed.
+  const skipped = 0;
   for (const c of cases) {
     const present = await fileExists(join(EVAL_DIR, c.image));
     if (!present) {
-      console.warn(`[skip] ${c.id} — image not found at ${c.image}`);
-      skipped++;
-      continue;
+      console.log(`\n→ ${c.id} (context-only — no image yet)`);
+    } else {
+      console.log(`\n→ ${c.id}`);
     }
-    console.log(`\n→ ${c.id}`);
-    const result = await runCase(c, workerUrl, adminToken, !noCache);
+    const result = await runCase(c, workerUrl, adminToken, !noCache, present);
     if (result.ok && result.report) {
       const cacheNote = (result as { cached?: boolean }).cached ? ' · cached' : '';
       console.log(`  /analyze ok · ${result.metrics.latencyMs}ms · $${result.metrics.usdCost.toFixed(4)}${cacheNote}`);
@@ -114,21 +116,23 @@ async function runCase(
   workerUrl: string,
   adminToken: string,
   cacheEnabled: boolean,
+  hasImage: boolean,
 ): Promise<CaseResult & { cached?: boolean }> {
-  const imagePath = join(EVAL_DIR, c.image);
-  const imageBuf = await fs.readFile(imagePath);
-  const imageB64 = imageBuf.toString('base64');
+  // Context-only mode: image missing → run without image_base64. The
+  // analyzer still gets the cat profile + history + diary + prompt,
+  // which exercises the reasoning even if vision is unavailable.
+  const imageBuf = hasImage ? await fs.readFile(join(EVAL_DIR, c.image)) : null;
+  const imageB64 = imageBuf ? imageBuf.toString('base64') : null;
 
   const prompt = buildPrompt(c);
 
-  // Cache key: image hash + prompt + case id. If we've seen this exact
-  // input before, skip the /analyze round-trip and reuse the cached
-  // response. This is the biggest cost-saver during judge-prompt
-  // iteration — analyze is the per-case fixed cost, judge is variable.
+  // Cache key includes image bytes (or 'no-image' sentinel) so context-only
+  // runs cache separately from image runs. Lets you add an image later
+  // without polluting the cache.
   const cacheKey = createHash('sha256')
     .update(c.id)
     .update(prompt)
-    .update(imageBuf)
+    .update(imageBuf ?? Buffer.from('no-image'))
     .digest('hex')
     .slice(0, 16);
   const cachePath = join(CACHE_DIR, `${c.id}-${cacheKey}.json`);
@@ -157,11 +161,11 @@ async function runCase(
       'User-Agent': 'CatHealthApp/eval CFNetwork/1.0',  // matches WAF allow-list
       'X-Eval-Run': '1',                                 // for /admin/insights to ignore eval traffic
     },
-    body: JSON.stringify({
-      prompt,
-      image_base64: imageB64,
-      max_tokens: 1500,
-    }),
+    body: JSON.stringify(
+      imageB64
+        ? { prompt, image_base64: imageB64, max_tokens: 1500 }
+        : { prompt, max_tokens: 1500 },
+    ),
   });
   const latencyMs = Date.now() - t0;
 

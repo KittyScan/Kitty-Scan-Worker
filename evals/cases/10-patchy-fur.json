@@ -1,0 +1,36 @@
+{
+  "id": "10-patchy-fur",
+  "description_zh": "局部脱毛/秃斑,可能是过敏或皮肤病",
+  "description_en": "Patchy hair loss / bald spots — possible allergy or skin issue",
+  "image": "images/10-patchy-fur.jpg",
+  "context": {
+    "cat": {
+      "name": "Patches",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "sex": "female",
+      "neuter": true,
+      "knownIssues": ["容易过敏"]
+    },
+    "history": [],
+    "diary": [
+      { "daysAgo": 7, "meals": 2, "water": 2, "mood": 3, "discomfort": true, "notes": "经常挠某个地方" }
+    ],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range",  "field": "subScores.fur", "min": 0, "max": 65, "rationale": "patchy fur loss → fur score significantly low" },
+    { "type": "must_contain", "field": "furCondition",  "substrings": ["fur", "毛"],  "rationale": "must address the fur signal" },
+    { "type": "array_min",    "field": "suggestions",   "min": 1,                     "rationale": "must suggest something" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须区分秃斑与打结(这是脱毛,不是毛打结)",
+    "应该把过敏(已知问题)+ 抓挠(diary)+ 秃斑(照片)三条线索连起来",
+    "应该建议兽医做皮肤/过敏检查"
+  ],
+  "qualitative_criteria_en": [
+    "Must distinguish bald spots from matting (this is hair loss, not knots)",
+    "Should connect the three signals: known allergies + scratching diary + visible patches",
+    "Should recommend vet skin/allergy evaluation"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "14-diary-flag",
+  "description_zh": "照片精神,但 diary 显示连续 5 天没胃口",
+  "description_en": "Photo looks alert but diary shows 5 consecutive days of poor appetite",
+  "image": "images/14-diary-flag.jpg",
+  "context": {
+    "cat": {
+      "name": "Snowball",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [
+      { "daysAgo": 5, "meals": 1, "water": 1, "mood": 2, "discomfort": false, "notes": "没怎么吃" },
+      { "daysAgo": 4, "meals": 1, "water": 1, "mood": 2, "discomfort": false, "notes": "胃口不好" },
+      { "daysAgo": 3, "meals": 0, "water": 1, "mood": 2, "discomfort": true,  "notes": "几乎没碰碗" },
+      { "daysAgo": 2, "meals": 1, "water": 1, "mood": 2, "discomfort": true,  "notes": "勉强吃了一点" },
+      { "daysAgo": 1, "meals": 1, "water": 1, "mood": 2, "discomfort": true,  "notes": "胃口持续不好" }
+    ],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "must_contain", "field": "summary",       "substrings": ["胃口", "appetite", "diary", "饮食", "进食"], "rationale": "summary must reference the appetite signal" },
+    { "type": "array_min",    "field": "suggestions",   "min": 1, "rationale": "5 days of poor appetite warrants action" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须把 diary 的胃口下降问题点出来,不能因为照片看起来精神就 dismiss",
+    "应该建议带去兽医(连续 5 天胃口异常)",
+    "不能给高总分掩盖 diary 里的问题信号"
+  ],
+  "qualitative_criteria_en": [
+    "Must surface the diary's appetite decline — not dismiss because the photo looks alert",
+    "Should recommend a vet visit (5 consecutive days of appetite anomaly is non-trivial)",
+    "Should NOT give a misleadingly high overall score that masks the diary signal"
+  ]
+}

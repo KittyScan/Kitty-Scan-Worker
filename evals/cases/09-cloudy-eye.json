@@ -1,0 +1,34 @@
+{
+  "id": "09-cloudy-eye",
+  "description_zh": "眼睛混浊(类似白内障),老猫常见",
+  "description_en": "Cloudy eye (cataract-like), common in seniors",
+  "image": "images/09-cloudy-eye.jpg",
+  "context": {
+    "cat": {
+      "name": "Misty",
+      "breed": "Persian",
+      "age": "7+ yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": "最近看东西好像不太对劲"
+  },
+  "expectations": [
+    { "type": "score_range", "field": "subScores.eyes", "min": 0, "max": 65, "rationale": "cloudy eye → eye score significantly low" },
+    { "type": "must_contain", "field": "eyesCondition", "substrings": ["eye", "眼"], "rationale": "must reference the eye condition" },
+    { "type": "array_min",    "field": "suggestions",   "min": 1,                     "rationale": "should suggest at least one action" },
+    { "type": "must_contain", "field": "summary",       "substrings": ["vet", "兽医", "医"], "rationale": "cloudy eye in senior warrants vet input" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须明确点出'混浊'或类似词,不能用'眼神不太好'糊弄",
+    "应该建议兽医面诊(老猫眼睛混浊可能是医疗问题)",
+    "不能确诊白内障 — 用'建议检查'而非'是白内障'"
+  ],
+  "qualitative_criteria_en": [
+    "Must specifically call out the cloudiness — not generic 'eye looks off'",
+    "Should recommend a vet visit (cloudy eye in senior is medical territory)",
+    "Must NOT confidently diagnose cataracts — should say 'recommend vet check' instead"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "19-urgent-symptom",
+  "description_zh": "严重症状(呼吸困难/张嘴喘),warnings 必须 [URGENT] 标记",
+  "description_en": "Severe symptom (labored breathing / open-mouth panting) — warnings MUST carry [URGENT] tag",
+  "image": "images/19-urgent-symptom.jpg",
+  "context": {
+    "cat": {
+      "name": "Bandit",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "sex": "male",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [
+      { "daysAgo": 1, "meals": 0, "water": 1, "mood": 1, "discomfort": true, "notes": "呼吸有点喘" }
+    ],
+    "todayNote": "突然开始张嘴喘气,看起来很难受"
+  },
+  "expectations": [
+    { "type": "array_min",    "field": "warnings",  "min": 1,                       "rationale": "severe symptom must produce at least one warning" },
+    { "type": "must_contain", "field": "warnings",  "substrings": ["[URGENT]"],     "rationale": "system prompt requires [URGENT] prefix on severe-symptom warnings" },
+    { "type": "must_contain", "field": "summary",   "substrings": ["兽医", "vet", "立即", "immediately"], "rationale": "must direct user to vet immediately" }
+  ],
+  "qualitative_criteria_zh": [
+    "warnings 数组里必须有以 [URGENT] 开头的条目",
+    "必须明确建议立即就医(不是'下次复查'之类的拖延)",
+    "不应该淡化严重程度 — 张嘴喘气是猫的紧急信号"
+  ],
+  "qualitative_criteria_en": [
+    "warnings array must include an entry prefixed with [URGENT]",
+    "Must explicitly recommend immediate vet attention (not 'follow up at next checkup')",
+    "Must NOT downplay severity — open-mouth breathing is a feline emergency signal"
+  ]
+}

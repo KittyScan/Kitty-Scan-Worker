@@ -1,0 +1,38 @@
+{
+  "id": "07-healthy-senior",
+  "description_zh": "12岁老猫但状态保持良好",
+  "description_en": "12yo senior cat in good shape",
+  "image": "images/07-healthy-senior.jpg",
+  "context": {
+    "cat": {
+      "name": "Pumpkin",
+      "breed": "Persian",
+      "age": "7+ yr",
+      "sex": "male",
+      "neuter": true,
+      "knownIssues": []
+    },
+    "history": [
+      { "daysAgo": 60, "healthScore": 82, "summary": "状态稳定良好" },
+      { "daysAgo": 30, "healthScore": 84, "summary": "保持良好" }
+    ],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range", "field": "subScores.eyes",    "min": 75, "max": 100, "rationale": "healthy senior — slight age-related variation OK" },
+    { "type": "score_range", "field": "subScores.fur",     "min": 75, "max": 100, "rationale": "well-maintained senior coat" },
+    { "type": "score_range", "field": "subScores.posture", "min": 70, "max": 100, "rationale": "minor age-related stiffness possible but not concerning" },
+    { "type": "array_max",   "field": "warnings",          "max": 0,              "rationale": "no urgent flags for a stable senior" }
+  ],
+  "qualitative_criteria_zh": [
+    "不应该因为是老猫就默认拉低分数(状态确实稳定就给高分)",
+    "建议应该针对老猫(定期体检/关节支持/便利的猫砂位置),不是 kitten 的疫苗",
+    "应该正面引用历史记录,认可主人维持得好"
+  ],
+  "qualitative_criteria_en": [
+    "Should NOT default-low scores just because the cat is old",
+    "Suggestions tailored to senior (regular checkups, joint support, accessible litter) not kitten",
+    "Should positively reference history showing the owner is maintaining well"
+  ]
+}

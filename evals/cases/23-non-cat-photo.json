@@ -1,0 +1,34 @@
+{
+  "id": "23-non-cat-photo",
+  "description_zh": "传了非猫的照片(狗或物体),与 04 区别在'有动物但不是猫'",
+  "description_en": "Non-cat photo uploaded (dog or object) — differs from 04 in that there IS an animal, just not a cat",
+  "image": "images/23-non-cat-photo.jpg",
+  "context": {
+    "cat": {
+      "name": "Mochi",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "sex": "female",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "equals",       "field": "breed",       "value": "no-cat-detected", "rationale": "agreed sentinel for any non-cat photo" },
+    { "type": "equals",       "field": "healthScore", "value": 0,                  "rationale": "no health score when no cat present" },
+    { "type": "must_contain", "field": "summary",     "substrings": ["看", "see", "cat", "猫"], "rationale": "summary should explain no cat seen + suggest retake" },
+    { "type": "array_max",    "field": "warnings",    "max": 0,                    "rationale": "no warnings — there's no cat to warn about" }
+  ],
+  "qualitative_criteria_zh": [
+    "即使照片里有狗或其他动物,也必须坚持'没看到猫'路径,不能开始评论狗",
+    "不应该把狗的特征'翻译'到猫身上",
+    "应该友好建议主人传一张猫的照片"
+  ],
+  "qualitative_criteria_en": [
+    "Even if a dog or other animal is visible, must stay on the 'no cat detected' path — must NOT start grading the dog",
+    "Must NOT 'translate' dog features into cat findings",
+    "Should friendly-suggest uploading a cat photo instead"
+  ]
+}

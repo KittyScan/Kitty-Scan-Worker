@@ -1,0 +1,35 @@
+{
+  "id": "06-healthy-kitten",
+  "description_zh": "0-1岁健康小奶猫,精力充沛眼神好",
+  "description_en": "Healthy 0-1yo kitten, bright-eyed and energetic",
+  "image": "images/06-healthy-kitten.jpg",
+  "context": {
+    "cat": {
+      "name": "Boba",
+      "breed": "Domestic Shorthair",
+      "age": "0-1 yr",
+      "sex": "female",
+      "neuter": false
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range", "field": "subScores.eyes",   "min": 80, "max": 100, "rationale": "kittens have bright clear eyes" },
+    { "type": "score_range", "field": "subScores.fur",    "min": 80, "max": 100, "rationale": "kitten coat is fresh and clean" },
+    { "type": "score_range", "field": "subScores.energy", "min": 80, "max": 100, "rationale": "kittens are typically energetic" },
+    { "type": "array_max",   "field": "warnings",         "max": 0,              "rationale": "no urgent issues for a healthy kitten" },
+    { "type": "must_not_contain", "field": "summary",     "substrings": ["URGENT"], "rationale": "no urgent flag for healthy kitten" }
+  ],
+  "qualitative_criteria_zh": [
+    "应该明确认识到这是小奶猫(年龄段),不要按成年猫标准评估",
+    "建议应该是 kitten 适合的(疫苗/玩耍/成长饮食),不是老猫的关节支持",
+    "不应该因为'年龄小'就刻意降低分数"
+  ],
+  "qualitative_criteria_en": [
+    "Should recognize this is a kitten and adapt rubric (not adult-cat standard)",
+    "Suggestions should be kitten-appropriate (vaccines, play, growth diet) not senior-cat",
+    "Should not drop scores for being young"
+  ]
+}
