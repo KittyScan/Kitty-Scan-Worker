@@ -27,7 +27,7 @@ import type { Env } from '../index';
 import { callAnthropicMessages } from '../lib/anthropic';
 import { PRODUCT_CONTEXT } from '../lib/product-context';
 
-const INSIGHTS_CACHE_KEY  = 'insights:cache:v4';   // bump on schema change
+const INSIGHTS_CACHE_KEY  = 'insights:cache:v5';   // bump on schema change
 const INSIGHTS_CACHE_TTL  = 60 * 60;   // 1h
 const INSIGHTS_LIST_LIMIT = 1000;
 // Haiku 4.5 — Sonnet's analytical edge isn't worth the 524 Cloudflare
@@ -56,52 +56,39 @@ interface EntRow {
   lastUpdatedAt?: number;
 }
 
+/**
+ * Minimalist schema — the founder should be able to read this in 10 seconds
+ * on their phone between meetings. Earlier versions had TL;DR + ROI + Funnel
+ * + Playbook + Roadmap, each with multi-line prose; net result was a wall of
+ * text that the founder ignored ("文字好多"). This version keeps only:
+ *
+ *   1. ONE verdict sentence — what's happening today
+ *   2. Up to 3 KPI tiles      — the numbers behind that sentence
+ *   3. The funnel              — counts + conversion %, no prose
+ *   4. EXACTLY 3 actions       — title + why + single-line do, P0/P1/P2 tagged
+ *
+ * No essays, no roadmap groups, no playbook. If something's truly important,
+ * it makes the top-3 actions; otherwise it doesn't make the screen.
+ */
 export interface Insights {
   generatedAt: string;
   dataWindow: { fbCount: number; logCount: number; entCount: number; months: number };
-  /** TL;DR hero. The one screen the founder reads on phone between meetings. */
-  daily_summary: {
-    headline_zh: string; headline_en: string;     // ≤ 1 sentence
-    key_numbers: Array<{
-      label_zh: string; label_en: string;
-      value: string;                              // "12", "$0.42", "67%"
-      delta_zh: string; delta_en: string;        // "+3 vs 昨天" / "+3 vs yesterday"
-    }>;
-    one_thing_today_zh: string; one_thing_today_en: string;  // single most important action
-  };
-  /** North star: ROI = revenue / Anthropic cost. */
-  north_star_roi: {
-    current_value: string;                        // "3.2:1" or "—"
+  verdict_zh: string; verdict_en: string;           // one sentence, ≤ 25 字
+  kpi: Array<{
+    label_zh: string; label_en: string;
+    value: string;                                  // "$0.42", "12", "67%"
     trend: 'up'|'down'|'flat';
-    diagnosis_zh: string; diagnosis_en: string;
-    biggest_drag_zh: string; biggest_drag_en: string;
-  };
-  /** Step-by-step funnel. Counts at each stage + drop-off diagnosis. */
-  funnel: {
-    stages: Array<{
-      name_zh: string; name_en: string;
-      count: number;
-      conversion_pct: number;                      // % of previous stage
-    }>;
-    biggest_drop_off_zh: string; biggest_drop_off_en: string;
-    fix_zh: string; fix_en: string;                // one-sentence fix proposal
-  };
-  /** Plays to run THIS WEEK to lift conversion / renewal. Step-by-step. */
-  conversion_playbook: Array<{
-    tactic_zh: string; tactic_en: string;
-    why_zh: string; why_en: string;
-    how_zh: string[]; how_en: string[];           // 3-5 numbered steps
-    expected_zh: string; expected_en: string;     // what you'll see
   }>;
-  /** Feature backlog ranked P0/P1/P2/P3. Each item readable by non-PM. */
-  feature_roadmap: Array<{
-    priority: 'P0'|'P1'|'P2'|'P3';
-    title_zh: string; title_en: string;
-    why_zh: string; why_en: string;
-    what_zh: string; what_en: string;
-    how_steps_zh: string[]; how_steps_en: string[];   // 3-6 plain-English steps
-    timeline_zh: string; timeline_en: string;
-    expected_impact_zh: string; expected_impact_en: string;
+  funnel: Array<{
+    label_zh: string; label_en: string;
+    count: number;
+    pct: number;                                    // % of previous stage; first stage = 100
+  }>;
+  actions: Array<{
+    priority: 'P0'|'P1'|'P2';
+    title_zh: string; title_en: string;             // ≤ 8 words / 12 字
+    why_zh: string; why_en: string;                 // ≤ 12 words / 18 字
+    do_zh: string; do_en: string;                   // single imperative line, ≤ 12 words / 18 字
   }>;
   rawDigest?: Record<string, unknown>;
 }
@@ -359,100 +346,59 @@ async function aggregateForAnalysis(env: Env): Promise<DataDigest> {
 // ===========================================================================
 
 const ANALYST_SYSTEM_PROMPT = `
-You are KittyScan's growth-side product analyst, embedded with a solo
-founder who is NOT a product manager. Your job is to translate raw
-telemetry into a daily action plan a non-product person can execute.
+You are KittyScan's product analyst. The reader is a solo founder, on
+their phone, between meetings, with 10 seconds of attention. They want a
+verdict and a to-do list, NOT a strategy memo.
 
-NORTH STAR: ROI = monthly revenue / Anthropic cost. Every recommendation
-must point at this number.
+NORTH STAR: ROI = monthly revenue ÷ Anthropic cost. Every action must
+move this number.
 
 GROUNDING — non-negotiable:
-- The user message starts with a "CURRENT PRODUCT STATE" section. Treat
-  it as ground truth. It lists every feature that ALREADY EXISTS.
-- NEVER recommend something already in the SHIPPED list. If the data
-  suggests a shipped feature is broken, frame it as "fix/improve <existing
-  feature>", not "build it".
-- Recommendations should target the NOT YET SHIPPED list, OR propose
-  concrete improvements to existing features (cite the file or feature
-  name from the SHIPPED list).
-- Respect DELIBERATE NON-GOALS — never suggest analytics SDKs, ads, social
-  feed, etc.
-- Respect KEY POSITIONING — don't suggest changes that would break the
-  privacy-first / kitty-themed / solo-founder constraints.
+- The user message starts with "CURRENT PRODUCT STATE" — treat as truth.
+- NEVER suggest building something already in the SHIPPED list. If a
+  shipped feature is failing, frame as "fix <feature>", not "build".
+- Respect DELIBERATE NON-GOALS — never suggest analytics SDKs, ads,
+  social feed, etc.
+- Respect KEY POSITIONING — privacy-first, kitty-themed, solo-founder.
 
 OUTPUT: ONE JSON object — no markdown fences, no prose around it.
 Every text field has BOTH _zh and _en. Each natural in its language.
 
-WRITING STYLE — read like a recipe, not a strategy memo:
-- "Open settings page" beats "review configuration"
-- "Add a note saying X" beats "consider X-related messaging"
-- 短句, 每句 ≤ 25 字. No 行业 jargon.
-- For "how" steps: imperative verbs, numbered, what-to-click level detail.
-- Reference shipped feature names by their actual name from the context
-  (e.g. "the Phase 2 agent loop", "the Diary tab", "the 👍/👎 footer").
+WRITING STYLE — sharp, not soft:
+- "Cost up 40%, no Pro signups yet" beats "We are seeing some interesting cost dynamics"
+- "Add price under Pro button" beats "Consider improving pricing visibility"
+- Imperative verbs. No hedging. No "maybe", "consider", "could".
+- 短句, 每句 ≤ 20 字. No 行业 jargon.
 
 LENGTH CAPS (hard — break and you fail):
-- headline / title / tactic / action: ≤ 8 words / 12 字
-- why / details / diagnosis / expected: ≤ 15 words / 22 字
-- how_steps_* items: ≤ 12 words / 18 字 each, MAX 3 steps per item
+- verdict_*:    ≤ 18 words / 25 字 (one sentence, the punchline)
+- title_*:      ≤ 7 words / 11 字
+- why_*:        ≤ 12 words / 18 字
+- do_*:         ≤ 12 words / 18 字 (single imperative line — what to literally do)
 
 ARRAY SIZE CAPS (hard):
-- daily_summary.key_numbers:  exactly 3 items
-- conversion_playbook:        2 items only
-- feature_roadmap:            4 items total (one per priority ideally)
-- funnel.stages:              exactly the 6 stages defined below
+- kpi:     EXACTLY 3 items (most-important numbers — no padding)
+- funnel:  EXACTLY 6 stages (in order below)
+- actions: EXACTLY 3 items (the top three; if you can't find three, don't pad)
 
-OUTPUT SCHEMA:
+OUTPUT SCHEMA — output ONLY this object:
 {
-  "daily_summary": {
-    "headline_zh": "…", "headline_en": "…",
-    "key_numbers": [
-      { "label_zh":"…","label_en":"…","value":"…","delta_zh":"…","delta_en":"…" }
-    ],
-    "one_thing_today_zh": "…", "one_thing_today_en": "…"
-  },
-  "north_star_roi": {
-    "current_value": "<X.X:1 or — if no revenue>",
-    "trend": "up"|"down"|"flat",
-    "diagnosis_zh":"…","diagnosis_en":"…",
-    "biggest_drag_zh":"…","biggest_drag_en":"…"
-  },
-  "funnel": {
-    "stages": [
-      { "name_zh":"…","name_en":"…","count":<int>,"conversion_pct":<int 0-100> }
-    ],
-    "biggest_drop_off_zh":"…","biggest_drop_off_en":"…",
-    "fix_zh":"…","fix_en":"…"
-  },
-  "conversion_playbook": [
-    {
-      "tactic_zh":"…","tactic_en":"…",
-      "why_zh":"…","why_en":"…",
-      "how_zh":["1. 打开设置页","2. 加一句…","3. 测一下"],
-      "how_en":["1. Open settings","2. Add line that…","3. Test it"],
-      "expected_zh":"…","expected_en":"…"
-    }
+  "verdict_zh": "…", "verdict_en": "…",
+  "kpi": [
+    { "label_zh":"…","label_en":"…","value":"…","trend":"up"|"down"|"flat" }
   ],
-  "feature_roadmap": [
+  "funnel": [
+    { "label_zh":"…","label_en":"…","count":<int>,"pct":<int 0-100> }
+  ],
+  "actions": [
     {
-      "priority":"P0"|"P1"|"P2"|"P3",
+      "priority":"P0"|"P1"|"P2",
       "title_zh":"…","title_en":"…",
       "why_zh":"…","why_en":"…",
-      "what_zh":"…","what_en":"…",
-      "how_steps_zh":["1. ……","2. ……","3. ……"],
-      "how_steps_en":["1. …","2. …","3. …"],
-      "timeline_zh":"本周|本月|本季|backlog",
-      "timeline_en":"this week|this month|this quarter|backlog",
-      "expected_impact_zh":"…","expected_impact_en":"…"
+      "do_zh":"…","do_en":"…"
     }
   ]
 }
-
-PRIORITY DEFINITIONS (use these exactly):
-- P0: blocks ROI right now. Ship this week. No exceptions.
-- P1: unlocks a new ROI lever (more conversions, higher LTV, lower CAC). Ship this month.
-- P2: hygiene / quality-of-life. Ship this quarter when no P0/P1 in flight.
-- P3: backlog / 'maybe never'.
 
 FUNNEL STAGES (use these labels exactly, in this order):
 1. App 安装 / Install
@@ -461,27 +407,27 @@ FUNNEL STAGES (use these labels exactly, in this order):
 4. 购买 Pack / Pack purchase
 5. 升级 Pro / Upgrade to Pro
 6. Pro 续费 / Pro renewal
-Compute each count and the % conversion from the previous stage.
+First stage pct = 100. Each subsequent pct = % of previous stage.
 
-ROADMAP DISTRIBUTION:
-- 5-6 roadmap items total (no more — noise)
-- At least one P0 if anything is blocking ROI
-- If truly no P0, say so explicitly in one_thing_today
+PRIORITY:
+- P0: blocking ROI now. Do this week.
+- P1: unlocks new ROI. Do this month.
+- P2: hygiene. Do when no P0/P1 in flight.
 
-ROI CALCULATION HINTS:
-- Revenue: Pro ($6.99/mo each), 30-pack ($6.99 one-time), 10-pack ($2.99 one-time).
-  Use entitlement counts to estimate.
-- Cost: cost.mtd is monthly Anthropic spend in USD.
-- If revenue is zero, current_value = "—" and explain in diagnosis why.
+ROI HINTS:
+- Revenue: Pro ($6.99/mo), 30-pack ($6.99 one-time), 10-pack ($2.99).
+- Cost: cost.mtd is monthly Anthropic spend (USD).
 
-Always emit the JSON even if data is sparse — empty arrays OK, but you
-should still emit at least one P0 if anything is blocking ROI.
+Always emit valid JSON. If data is sparse, emit empty arrays + a verdict
+that says "Not enough data yet — keep collecting". Never pad.
 `.trim();
+
+type AnalystOutput = Pick<Insights, 'verdict_zh'|'verdict_en'|'kpi'|'funnel'|'actions'>;
 
 async function runAnalyst(
   digest: DataDigest,
   apiKey: string,
-): Promise<Pick<Insights, 'daily_summary'|'north_star_roi'|'funnel'|'conversion_playbook'|'feature_roadmap'>> {
+): Promise<AnalystOutput> {
   // Two halves to the user message:
   //   1. PRODUCT_CONTEXT — what's already shipped, what's deliberately
   //      not, key constraints. Without this, Claude keeps recommending
@@ -501,7 +447,7 @@ async function runAnalyst(
       messages: [
         { role: 'user', content: [{ type: 'text', text: userMsg }] },
       ],
-      max_tokens: 3500,
+      max_tokens: 1200,
     },
     apiKey,
     ANALYST_MODEL,
@@ -520,22 +466,11 @@ async function runAnalyst(
   try {
     const parsed = JSON.parse(cleaned) as Partial<Insights>;
     return {
-      daily_summary: parsed.daily_summary ?? {
-        headline_zh: '暂无数据', headline_en: 'No data yet',
-        key_numbers: [],
-        one_thing_today_zh: '—', one_thing_today_en: '—',
-      },
-      north_star_roi: parsed.north_star_roi ?? {
-        current_value: '—', trend: 'flat',
-        diagnosis_zh: '暂无数据', diagnosis_en: 'no data',
-        biggest_drag_zh: '—', biggest_drag_en: '—',
-      },
-      funnel: parsed.funnel ?? {
-        stages: [], biggest_drop_off_zh: '—', biggest_drop_off_en: '—',
-        fix_zh: '—', fix_en: '—',
-      },
-      conversion_playbook: Array.isArray(parsed.conversion_playbook) ? parsed.conversion_playbook : [],
-      feature_roadmap:    Array.isArray(parsed.feature_roadmap)    ? parsed.feature_roadmap    : [],
+      verdict_zh: parsed.verdict_zh ?? '暂无数据',
+      verdict_en: parsed.verdict_en ?? 'No data yet',
+      kpi:     Array.isArray(parsed.kpi)     ? parsed.kpi     : [],
+      funnel:  Array.isArray(parsed.funnel)  ? parsed.funnel  : [],
+      actions: Array.isArray(parsed.actions) ? parsed.actions : [],
     };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
@@ -547,23 +482,23 @@ async function runAnalyst(
   }
 }
 
-function fallback(kind: string, detail: string): Pick<Insights, 'daily_summary'|'north_star_roi'|'funnel'|'conversion_playbook'|'feature_roadmap'> {
+function fallback(kind: string, detail: string): AnalystOutput {
   return {
-    daily_summary: {
-      headline_zh: `分析器暂时不可用 (${kind})`,
-      headline_en: `Analyst unavailable (${kind})`,
-      key_numbers: [],
-      one_thing_today_zh: '检查 Worker 日志',
-      one_thing_today_en: 'Check Worker logs',
-    },
-    north_star_roi: {
-      current_value: '—', trend: 'flat',
-      diagnosis_zh: detail, diagnosis_en: detail,
-      biggest_drag_zh: '—', biggest_drag_en: '—',
-    },
-    funnel: { stages: [], biggest_drop_off_zh: '—', biggest_drop_off_en: '—', fix_zh: '—', fix_en: '—' },
-    conversion_playbook: [],
-    feature_roadmap: [],
+    verdict_zh: `分析器暂时不可用 (${kind})`,
+    verdict_en: `Analyst unavailable (${kind})`,
+    kpi: [],
+    funnel: [],
+    actions: [
+      {
+        priority: 'P0',
+        title_zh: '检查 Worker 日志',
+        title_en: 'Check Worker logs',
+        why_zh: detail.slice(0, 60),
+        why_en: detail.slice(0, 60),
+        do_zh: 'wrangler tail 看错误',
+        do_en: 'Run wrangler tail',
+      },
+    ],
   };
 }
 
