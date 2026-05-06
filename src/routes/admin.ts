@@ -84,6 +84,7 @@ export async function handleAdminFeedback(
     case 'users':    body = await renderUsers(env, limit);                break;
     case 'activity': body = await renderActivity(env, limit);             break;
     case 'costs':    body = await renderCosts(env);                       break;
+    case 'insights': body = renderInsights(token);                        break;
     default:         body = await renderOverview(env, limit);             break;
   }
 
@@ -386,6 +387,152 @@ async function renderCosts(env: Env): Promise<string> {
 }
 
 // ===========================================================================
+// Insights — client-side fetch of /admin/insights, AI-rendered analysis
+// ===========================================================================
+
+function renderInsights(token: string): string {
+  // We render the shell + a tiny JS fetcher. The actual analysis is
+  // fetched at view time so cache control + refresh button work
+  // entirely client-side. Token is templated in (this page is already
+  // gated on the same token, so no new exposure).
+  const t = JSON.stringify(token);
+  return `
+    <div id="insights-loading" class="panel" style="text-align:center;padding:48px">
+      <div style="font-size:32px">🧠</div>
+      <div style="margin-top:8px;font-weight:600;color:var(--title)">Analyst is reading your data…</div>
+      <div style="font-size:12px;opacity:.6;margin-top:6px">First load takes ~5-8 seconds (Claude). Cached for 1 hour after.</div>
+    </div>
+    <div id="insights-root" style="display:none"></div>
+    <div class="hint" style="margin-top:18px">
+      Powered by Claude Sonnet · refreshed at most once an hour to keep token spend minimal
+      · <a href="#" id="refresh-btn" style="color:var(--link);text-decoration:underline">force refresh now</a>
+    </div>
+    <script>
+    (function() {
+      const TOKEN = ${t};
+      const loading = document.getElementById('insights-loading');
+      const root    = document.getElementById('insights-root');
+      const refresh = document.getElementById('refresh-btn');
+
+      function severityColor(s) {
+        if (s === 'high')   return '#f8d7da';
+        if (s === 'medium') return '#fff3cd';
+        return '#e2e3e5';
+      }
+      function effortBadge(e) {
+        if (e === 'large')  return '<span class="badge" style="background:#f8d7da">large</span>';
+        if (e === 'medium') return '<span class="badge" style="background:#fff3cd">medium</span>';
+        return '<span class="badge" style="background:#d4edda">small</span>';
+      }
+      function esc(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({
+          '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"
+        }[c]));
+      }
+
+      function render(data) {
+        const healthColor = data.health.score >= 80 ? '#2e7d32'
+                          : data.health.score >= 60 ? '#ed6c02'
+                          : '#c62828';
+        const w = data.dataWindow || {};
+
+        const concerns = (data.concerns || []).map(c => \`
+          <div class="card" style="background:\${severityColor(c.severity)}">
+            <div class="card-h">
+              <span class="badge" style="background:rgba(0,0,0,.08)">\${esc(c.severity)}</span>
+              <strong>\${esc(c.title)}</strong>
+            </div>
+            <div class="card-b">\${esc(c.details)}</div>
+          </div>\`).join('') || '<div style="opacity:.5">No concerns flagged.</div>';
+
+        const recs = (data.recommendations || []).map(r => \`
+          <div class="card">
+            <div class="card-h">
+              <span class="prio">#\${r.priority}</span>
+              <strong>\${esc(r.title)}</strong>
+              \${effortBadge(r.effort)}
+            </div>
+            <div class="card-b"><em>Why:</em> \${esc(r.rationale)}</div>
+            <div class="card-b"><em>Impact:</em> \${esc(r.expectedImpact)}</div>
+          </div>\`).join('') || '<div style="opacity:.5">No feature recommendations yet.</div>';
+
+        const opts = (data.optimizations || []).map(o => \`
+          <div class="card">
+            <div class="card-h">
+              <span class="badge" style="background:rgba(168,90,26,.15);color:var(--link)">\${esc(o.area)}</span>
+              <strong>\${esc(o.suggestion)}</strong>
+            </div>
+            <div class="card-b"><em>Expected gain:</em> \${esc(o.expectedGain)}</div>
+          </div>\`).join('') || '<div style="opacity:.5">Nothing to optimize.</div>';
+
+        const acts = (data.actions || []).map(a => \`
+          <tr>
+            <td><span class="badge" style="background:rgba(0,0,0,.06)">\${esc(a.category)}</span></td>
+            <td><strong>\${esc(a.action)}</strong></td>
+            <td class="meta">\${esc(a.evidence)}</td>
+          </tr>\`).join('') || '<tr><td colspan="3" style="opacity:.5;padding:14px;text-align:center">No actions queued.</td></tr>';
+
+        root.innerHTML = \`
+          <div class="panel" style="background:linear-gradient(135deg,#fffaf2,#fdf3e3)">
+            <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+              <div style="font-size:48px;font-weight:700;color:\${healthColor};font-variant-numeric:tabular-nums;line-height:1">\${data.health.score}</div>
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:12px;opacity:.6;text-transform:uppercase;letter-spacing:.5px">Health score</div>
+                <div style="font-size:15px;color:var(--title);font-weight:500;margin-top:2px">\${esc(data.health.summary)}</div>
+              </div>
+              <div style="font-size:11px;opacity:.6;text-align:right">
+                Generated \${esc((data.generatedAt || '').slice(0,16).replace('T',' '))} UTC<br>
+                Window: \${w.fbCount||0} feedback · \${w.logCount||0} calls · \${w.entCount||0} accounts
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="panel"><h3>⚠️ Concerns</h3>\${concerns}</div>
+            <div class="panel"><h3>🚀 Feature recommendations (priority order)</h3>\${recs}</div>
+          </div>
+
+          <div class="panel"><h3>⚡ Optimizations</h3>\${opts}</div>
+
+          <div class="panel">
+            <h3>✅ Action items (this week)</h3>
+            <table>
+              <thead><tr><th>Type</th><th>Action</th><th>Evidence</th></tr></thead>
+              <tbody>\${acts}</tbody>
+            </table>
+          </div>
+        \`;
+        loading.style.display = 'none';
+        root.style.display = 'block';
+      }
+
+      function renderError(msg) {
+        loading.innerHTML = '<div style="color:#c62828;font-weight:600">Failed to load insights</div>' +
+                            '<div style="font-size:12px;opacity:.7;margin-top:6px">' + esc(msg) + '</div>';
+      }
+
+      function load(refreshFlag) {
+        loading.style.display = 'block';
+        root.style.display = 'none';
+        const url = '/admin/insights?token=' + encodeURIComponent(TOKEN) +
+                    (refreshFlag ? '&refresh=1' : '');
+        fetch(url)
+          .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(new Error(t))))
+          .then(render)
+          .catch(e => renderError(e.message || String(e)));
+      }
+
+      refresh.addEventListener('click', function(e) {
+        e.preventDefault();
+        load(true);
+      });
+      load(false);
+    })();
+    </script>
+  `;
+}
+
+// ===========================================================================
 // Helpers
 // ===========================================================================
 
@@ -442,10 +589,11 @@ function esc(s: string): string {
 // ===========================================================================
 
 function shell(body: string, section: string, token: string): string {
-  const tabs = ['overview', 'activity', 'feedback', 'users', 'costs']
+  const tabs = ['overview', 'insights', 'activity', 'feedback', 'users', 'costs']
     .map((s) => {
       const active = s === section ? 'active' : '';
-      return `<a class="tab ${active}" href="?token=${encodeURIComponent(token)}&section=${s}">${s}</a>`;
+      const star   = s === 'insights' ? ' ✨' : '';
+      return `<a class="tab ${active}" href="?token=${encodeURIComponent(token)}&section=${s}">${s}${star}</a>`;
     })
     .join('');
 
@@ -501,6 +649,13 @@ function shell(body: string, section: string, token: string): string {
   .bar-track{height:14px;background:rgba(74,47,24,.08);border-radius:7px;overflow:hidden}
   .bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--link));border-radius:7px}
   .bar-value{font-size:12px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;color:var(--title)}
+  .card{background:rgba(0,0,0,.02);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .card-h{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--title);margin-bottom:4px}
+  .card-h strong{flex:1}
+  .card-b{font-size:12px;color:var(--body);margin-top:4px;line-height:1.5}
+  .card-b em{font-style:normal;font-weight:600;opacity:.7}
+  .badge{display:inline-block;padding:2px 8px;border-radius:9px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .prio{background:var(--link);color:white;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>

@@ -104,6 +104,9 @@ export interface MessagesInput {
   messages: Array<Record<string, unknown>>;
   tools?: Array<Record<string, unknown>>;
   max_tokens?: number;
+  /** Optional top-level system prompt — Anthropic's recommended way to
+   *  pin role/format instructions vs. burying them in the user message. */
+  system?: string;
 }
 
 export async function callAnthropicMessages(
@@ -111,7 +114,9 @@ export async function callAnthropicMessages(
   apiKey: string,
   model: string,
 ): Promise<AnthropicResult> {
-  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 4000);
+  // Cap raised to 8000 to fit longer agent / analyst outputs (Sonnet 4
+  // can comfortably emit 4-6K of JSON when asked to be thorough).
+  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 8000);
   const payload: Record<string, unknown> = {
     model,
     max_tokens: maxTokens,
@@ -119,6 +124,9 @@ export async function callAnthropicMessages(
   };
   if (input.tools && input.tools.length > 0) {
     payload.tools = input.tools;
+  }
+  if (input.system) {
+    payload.system = input.system;
   }
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {

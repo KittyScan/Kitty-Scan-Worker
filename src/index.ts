@@ -2,6 +2,7 @@ import { handleAnalyze } from './routes/analyze';
 import { handleAgent } from './routes/agent';
 import { handleConsumeAnalysis } from './routes/consume';
 import { handleAdminFeedback } from './routes/admin';
+import { handleAdminInsights } from './routes/insights';
 import { handleVerifyReceipt } from './routes/verify-receipt';
 import { handleAppleWebhook } from './routes/apple-webhook';
 import { handleFeedback } from './routes/feedback';
@@ -93,6 +94,13 @@ export default {
       if ((url.pathname === '/admin' || url.pathname === '/admin/feedback')
           && request.method === 'GET') {
         return await handleAdminFeedback(request, env, ctx);
+      }
+
+      // AI-powered insights — Claude reads the entire telemetry digest
+      // and emits structured next-step recommendations. JSON only;
+      // dashboard fetches and renders client-side.
+      if (url.pathname === '/admin/insights' && request.method === 'GET') {
+        return await handleAdminInsights(request, env, ctx);
       }
 
       return json({ error: 'not_found' }, 404);
