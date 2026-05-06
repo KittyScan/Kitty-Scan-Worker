@@ -236,25 +236,31 @@ async function renderFeedback(env: Env, url: URL, token: string, limit: number):
     })
     .join(' ');
 
-  const tableRows = filtered
+  // Card layout instead of a table — mobile horizontal-scroll on a 5-col
+  // table was a UX disaster. Each entry is now a self-contained card with
+  // the actual feedback text prominent, metadata as small secondary line.
+  const feedbackCards = filtered
     .slice()
     .sort((a, b) => (b.receivedAt ?? '').localeCompare(a.receivedAt ?? ''))
     .map((r) => {
       const when = (r.receivedAt ?? '').replace('T', ' ').slice(0, 16);
       const cat = r.category ?? '';
-      const catColor =
-        cat === 'rating' ? ((r.text ?? '').startsWith('👍') ? '#d4edda' : '#f8d7da')
-                         : cat === 'bug'    ? '#fff3cd'
-                         : cat === 'feature' ? '#d1ecf1'
-                         : '#e2e3e5';
-      const tokenShort = (r.accountToken ?? '').slice(0, 8);
-      return `<tr>
-        <td class="when">${esc(when)}</td>
-        <td><span class="cat" style="background:${catColor}">${esc(cat)}</span></td>
-        <td class="text">${esc(r.text ?? '')}</td>
-        <td class="meta">${esc(r.appVersion ?? '?')} (${esc(r.appBuild ?? '?')}) · ${esc(r.iosVersion ?? '?')} · ${esc(r.language ?? '?')} · ${esc(r.country ?? '?')}</td>
-        <td class="token">${esc(tokenShort)}</td>
-      </tr>`;
+      const isThumbsUp   = cat === 'rating' && (r.text ?? '').startsWith('👍');
+      const isThumbsDown = cat === 'rating' && (r.text ?? '').startsWith('👎');
+      const accent = isThumbsUp   ? '#2e7d32'
+                  : isThumbsDown ? '#c62828'
+                  : cat === 'bug' ? '#ed6c02'
+                  : cat === 'feature' ? '#1976d2'
+                  : '#9e9e9e';
+      const meta = [r.appVersion, r.iosVersion, r.language, r.country].filter(Boolean).join(' · ');
+      return `<div class="fb-card" style="border-left-color:${accent}">
+        <div class="fb-card-head">
+          <span class="fb-cat" style="background:${accent}20;color:${accent}">${esc(cat)}</span>
+          <span class="fb-when">${esc(when)} UTC</span>
+        </div>
+        <div class="fb-text">${esc(r.text ?? '')}</div>
+        <div class="fb-meta">${esc(meta || '—')}</div>
+      </div>`;
     })
     .join('');
 
@@ -278,10 +284,8 @@ async function renderFeedback(env: Env, url: URL, token: string, limit: number):
     </div>
     <div class="filters">${filters}</div>
     <div class="panel">
-      <table>
-        <thead><tr><th>${bi('时间 UTC', 'When (UTC)')}</th><th>${bi('类别', 'Category')}</th><th>${bi('内容', 'Text')}</th><th>${bi('客户端', 'Client')}</th><th>${bi('Token', 'Token')}</th></tr></thead>
-        <tbody>${tableRows || `<tr><td colspan="5" style="opacity:.5;padding:20px;text-align:center">${bi('暂无反馈', 'No feedback yet')}</td></tr>`}</tbody>
-      </table>
+      <h3>${bi('反馈明细', 'Feedback entries')}</h3>
+      <div class="fb-list">${feedbackCards || `<div style="opacity:.5;padding:20px;text-align:center">${bi('暂无反馈', 'No feedback yet')}</div>`}</div>
     </div>
   `;
 }
@@ -567,10 +571,26 @@ function renderInsights(token: string): string {
       </div>
       <a href="#" id="refresh-btn" style="font-size:12px;color:var(--link)">↻</a>
     </div>
-    <div id="insights-loading" class="panel" style="text-align:center;padding:48px">
-      <div style="font-size:32px">🧠</div>
-      <div style="margin-top:8px;font-weight:600;color:var(--title);"><span class="zh-only">AI 在读你的数据…</span><span class="en-only">AI reading your data…</span></div>
-      <div style="font-size:12px;opacity:.6;margin-top:6px"><span class="zh-only">首次 ~10-15 秒 · 缓存 1 小时</span><span class="en-only">~10-15s first time · cached 1 hour</span></div>
+    <div id="insights-loading">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 4px 14px;font-size:13px;opacity:.7">
+        <span class="spinner"></span>
+        <span class="zh-only">AI 在读你的数据… 首次 ~10-15 秒，之后缓存 1 小时</span>
+        <span class="en-only">AI reading your data… ~10-15s first time, cached 1 hour after</span>
+      </div>
+      <div class="panel hero">
+        <div class="sk sk-line" style="width:30%"></div>
+        <div class="sk sk-line" style="width:80%;height:22px;margin-top:10px"></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px">
+          <div class="sk sk-block"></div><div class="sk sk-block"></div><div class="sk sk-block"></div>
+        </div>
+        <div class="sk sk-block" style="margin-top:14px;height:60px"></div>
+      </div>
+      <div class="panel"><div class="sk sk-line" style="width:25%"></div><div class="sk sk-block" style="margin-top:10px"></div></div>
+      <div class="panel"><div class="sk sk-line" style="width:20%"></div><div class="sk sk-block" style="margin-top:10px;height:140px"></div></div>
+      <div class="panel"><div class="sk sk-line" style="width:30%"></div>
+        <div class="sk sk-block" style="margin-top:10px"></div>
+        <div class="sk sk-block" style="margin-top:8px"></div>
+      </div>
     </div>
     <div id="insights-root" style="display:none"></div>
     <script>
@@ -1041,6 +1061,33 @@ function shell(body: string, section: string, token: string): string {
   .route-badge{display:inline-block;padding:1px 7px;border-radius:7px;background:rgba(168,90,26,.14);color:var(--link);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
   .risk-tag{display:inline-block;padding:2px 7px;border-radius:9px;background:#ffe5e5;color:#c62828;font-size:10px;font-weight:600}
   .model-cell{font-family:'SF Mono',monospace;font-size:11px;opacity:.8}
+
+  /* Feedback card layout — replaces the 5-column table that was unreadable
+     on phone. Each card is self-contained: colored left border per category,
+     prominent text, metadata as small grey line. */
+  .fb-list{display:flex;flex-direction:column;gap:10px}
+  .fb-card{background:rgba(0,0,0,.02);border-left:3px solid #9e9e9e;border-radius:8px;
+           padding:11px 13px}
+  .fb-card-head{display:flex;align-items:center;justify-content:space-between;
+                gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .fb-cat{display:inline-block;padding:2px 9px;border-radius:9px;
+          font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .fb-when{font-size:11px;opacity:.6;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .fb-text{font-size:14px;color:var(--title);line-height:1.5;word-break:break-word;margin-bottom:5px}
+  .fb-meta{font-size:11px;opacity:.55;font-family:'SF Mono',monospace}
+
+  /* Skeleton placeholder used by the Insights tab while Claude generates.
+     Beats showing a blank panel for 30s — gives the eye something to land on. */
+  @keyframes skeleton-pulse {
+    0%,100% { opacity:.4 }
+    50%     { opacity:.7 }
+  }
+  .sk{background:rgba(74,47,24,.1);border-radius:6px;animation:skeleton-pulse 1.4s ease-in-out infinite}
+  .sk-line{height:14px;margin:6px 0}
+  .sk-block{height:80px;margin:8px 0}
+  @keyframes spin { to { transform: rotate(360deg) } }
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(74,47,24,.2);
+           border-top-color:var(--title);border-radius:50%;animation:spin .8s linear infinite}
 
   /* ─────────────────────────────────────────────────────────────────
      Mobile / PWA standalone-mode tweaks. Most laptop layouts already

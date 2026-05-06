@@ -392,14 +392,14 @@ WRITING STYLE — read like a recipe, not a strategy memo:
   (e.g. "the Phase 2 agent loop", "the Diary tab", "the 👍/👎 footer").
 
 LENGTH CAPS (hard — break and you fail):
-- headline / title / tactic / action / step:  ≤ 10 words / 15 字
-- why / details / diagnosis / expected:        ≤ 20 words / 28 字
-- how_steps_* items:                            ≤ 15 words / 22 字 each, MAX 4 steps
+- headline / title / tactic / action: ≤ 8 words / 12 字
+- why / details / diagnosis / expected: ≤ 15 words / 22 字
+- how_steps_* items: ≤ 12 words / 18 字 each, MAX 3 steps per item
 
 ARRAY SIZE CAPS (hard):
-- daily_summary.key_numbers:  exactly 4 items
-- conversion_playbook:        3 items, no more
-- feature_roadmap:            5-6 items total across all priorities
+- daily_summary.key_numbers:  exactly 3 items
+- conversion_playbook:        2 items only
+- feature_roadmap:            4 items total (one per priority ideally)
 - funnel.stages:              exactly the 6 stages defined below
 
 OUTPUT SCHEMA:
@@ -501,7 +501,7 @@ async function runAnalyst(
       messages: [
         { role: 'user', content: [{ type: 'text', text: userMsg }] },
       ],
-      max_tokens: 8000,
+      max_tokens: 3500,
     },
     apiKey,
     ANALYST_MODEL,
