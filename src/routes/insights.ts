@@ -25,11 +25,17 @@
 
 import type { Env } from '../index';
 import { callAnthropicMessages } from '../lib/anthropic';
+import { PRODUCT_CONTEXT } from '../lib/product-context';
 
-const INSIGHTS_CACHE_KEY  = 'insights:cache:v3';   // bump on schema change
+const INSIGHTS_CACHE_KEY  = 'insights:cache:v4';   // bump on schema change
 const INSIGHTS_CACHE_TTL  = 60 * 60;   // 1h
 const INSIGHTS_LIST_LIMIT = 1000;
-const ANALYST_MODEL       = 'claude-sonnet-4-6';
+// Haiku 4.5 — Sonnet's analytical edge isn't worth the 524 Cloudflare
+// timeouts on the larger structured output we're now requesting. Haiku
+// completes the same JSON in ~15-25s comfortably under the Worker
+// subrequest cap, with no meaningful quality drop on this format-bounded
+// task (the heavy lifting is JSON shape compliance, not novel reasoning).
+const ANALYST_MODEL       = 'claude-haiku-4-5-20251001';
 
 interface FeedbackRow {
   receivedAt?: string; category?: string; text?: string;
@@ -360,6 +366,20 @@ telemetry into a daily action plan a non-product person can execute.
 NORTH STAR: ROI = monthly revenue / Anthropic cost. Every recommendation
 must point at this number.
 
+GROUNDING — non-negotiable:
+- The user message starts with a "CURRENT PRODUCT STATE" section. Treat
+  it as ground truth. It lists every feature that ALREADY EXISTS.
+- NEVER recommend something already in the SHIPPED list. If the data
+  suggests a shipped feature is broken, frame it as "fix/improve <existing
+  feature>", not "build it".
+- Recommendations should target the NOT YET SHIPPED list, OR propose
+  concrete improvements to existing features (cite the file or feature
+  name from the SHIPPED list).
+- Respect DELIBERATE NON-GOALS — never suggest analytics SDKs, ads, social
+  feed, etc.
+- Respect KEY POSITIONING — don't suggest changes that would break the
+  privacy-first / kitty-themed / solo-founder constraints.
+
 OUTPUT: ONE JSON object — no markdown fences, no prose around it.
 Every text field has BOTH _zh and _en. Each natural in its language.
 
@@ -368,11 +388,19 @@ WRITING STYLE — read like a recipe, not a strategy memo:
 - "Add a note saying X" beats "consider X-related messaging"
 - 短句, 每句 ≤ 25 字. No 行业 jargon.
 - For "how" steps: imperative verbs, numbered, what-to-click level detail.
+- Reference shipped feature names by their actual name from the context
+  (e.g. "the Phase 2 agent loop", "the Diary tab", "the 👍/👎 footer").
 
-LENGTH CAPS (hard):
-- headline / title / tactic / action / step:  ≤ 12 words / 18 字
-- why / details / diagnosis / expected:        ≤ 30 words / 40 字
-- how_steps / how_steps_zh items:              ≤ 20 words / 30 字 each, 3-6 steps
+LENGTH CAPS (hard — break and you fail):
+- headline / title / tactic / action / step:  ≤ 10 words / 15 字
+- why / details / diagnosis / expected:        ≤ 20 words / 28 字
+- how_steps_* items:                            ≤ 15 words / 22 字 each, MAX 4 steps
+
+ARRAY SIZE CAPS (hard):
+- daily_summary.key_numbers:  exactly 4 items
+- conversion_playbook:        3 items, no more
+- feature_roadmap:            5-6 items total across all priorities
+- funnel.stages:              exactly the 6 stages defined below
 
 OUTPUT SCHEMA:
 {
@@ -435,12 +463,10 @@ FUNNEL STAGES (use these labels exactly, in this order):
 6. Pro 续费 / Pro renewal
 Compute each count and the % conversion from the previous stage.
 
-ARRAY SIZES:
-- daily_summary.key_numbers: 4-6 items
-- conversion_playbook: 3-5 items, ranked by ROI lift potential
-- feature_roadmap: 3-7 items total, with at least one P0 if there is ANY
-  P0-worthy issue (blocking ROI). If truly no P0, say so explicitly in
-  the one_thing_today field.
+ROADMAP DISTRIBUTION:
+- 5-6 roadmap items total (no more — noise)
+- At least one P0 if anything is blocking ROI
+- If truly no P0, say so explicitly in one_thing_today
 
 ROI CALCULATION HINTS:
 - Revenue: Pro ($6.99/mo each), 30-pack ($6.99 one-time), 10-pack ($2.99 one-time).
@@ -456,12 +482,18 @@ async function runAnalyst(
   digest: DataDigest,
   apiKey: string,
 ): Promise<Pick<Insights, 'daily_summary'|'north_star_roi'|'funnel'|'conversion_playbook'|'feature_roadmap'>> {
-  // Compact the digest — pass system at the top level (Anthropic's
-  // preferred slot) and only the data payload as the user turn so the
-  // model parses the role/format instructions cleanly.
-  const userMsg = `Production telemetry digest:\n` +
-                  '```json\n' + JSON.stringify(digest) + '\n```\n' +
-                  `Output the analysis JSON.`;
+  // Two halves to the user message:
+  //   1. PRODUCT_CONTEXT — what's already shipped, what's deliberately
+  //      not, key constraints. Without this, Claude keeps recommending
+  //      features that have been live for weeks.
+  //   2. The raw telemetry digest.
+  // System prompt enforces 'never recommend something in the shipped list'.
+  const userMsg =
+    `## CURRENT PRODUCT STATE (authoritative — do NOT recommend rebuilding what's already shipped)\n\n` +
+    PRODUCT_CONTEXT + `\n\n` +
+    `## TELEMETRY DIGEST (last ${digest.window.months} months)\n\n` +
+    '```json\n' + JSON.stringify(digest) + '\n```\n\n' +
+    `Output the analysis JSON.`;
 
   const resp = await callAnthropicMessages(
     {
@@ -469,7 +501,7 @@ async function runAnalyst(
       messages: [
         { role: 'user', content: [{ type: 'text', text: userMsg }] },
       ],
-      max_tokens: 6000,
+      max_tokens: 8000,
     },
     apiKey,
     ANALYST_MODEL,

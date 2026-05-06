@@ -114,9 +114,10 @@ export async function callAnthropicMessages(
   apiKey: string,
   model: string,
 ): Promise<AnthropicResult> {
-  // Cap raised to 8000 to fit longer agent / analyst outputs (Sonnet 4
-  // can comfortably emit 4-6K of JSON when asked to be thorough).
-  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 8000);
+  // Cap raised to 16000 to fit the analyst's bilingual + structured
+  // roadmap output. Sonnet 4 supports much higher; this is just defense
+  // against an accidentally-unbounded request.
+  const maxTokens = clamp(input.max_tokens ?? 1500, 256, 16000);
   const payload: Record<string, unknown> = {
     model,
     max_tokens: maxTokens,
