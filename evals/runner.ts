@@ -32,11 +32,10 @@ const COST_INPUT_PER_M  = 3;
 const COST_OUTPUT_PER_M = 15;
 
 async function main() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
   const adminToken = process.env.ADMIN_TOKEN;
   const workerUrl = process.env.WORKER_URL || 'https://carmel-worker.8fn98bvpdb.workers.dev';
-  if (!apiKey)     throw new Error('ANTHROPIC_API_KEY env var is required (for the judge)');
-  if (!adminToken) throw new Error('ADMIN_TOKEN env var is required (or pass via .env)');
+  if (!adminToken) throw new Error('ADMIN_TOKEN env var is required (gates both /analyze and /admin/judge)');
+  const judgeCfg = { workerUrl, adminToken };
 
   // Cost-cutting knobs. Defaults are tuned for daily iteration; bump
   // judgeRuns to 3 + judgeModel to opus for high-stakes regression gates.
@@ -79,7 +78,7 @@ async function main() {
       const cacheNote = (result as { cached?: boolean }).cached ? ' · cached' : '';
       console.log(`  /analyze ok · ${result.metrics.latencyMs}ms · $${result.metrics.usdCost.toFixed(4)}${cacheNote}`);
       try {
-        result.judge = await runJudge(c, result.report, apiKey, judgeRuns, judgeModel);
+        result.judge = await runJudge(c, result.report, judgeCfg, judgeRuns, judgeModel);
         console.log(`  judge ${result.judge.overall}/5 · halluc=${result.judge.hallucinations.length}`);
       } catch (e) {
         console.warn(`  judge failed: ${(e as Error).message}`);

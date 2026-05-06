@@ -24,7 +24,6 @@ import type { JudgeVerdict, TestCase } from './types';
 // is plenty for daily iteration. Bump to opus-4-7 for high-stakes
 // regression gates by setting JUDGE_MODEL=claude-opus-4-7.
 const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6';
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 const JUDGE_SYSTEM_PROMPT = `
 You are an evaluator for a cat-health AI report generator. You will see:
@@ -61,16 +60,21 @@ Scoring rubric (overall):
 Be strict. Don't reward effort, reward quality.
 `.trim();
 
+export interface JudgeConfig {
+  workerUrl: string;       // e.g. https://carmel-worker.8fn98bvpdb.workers.dev
+  adminToken: string;      // ADMIN_TOKEN — gates /admin/judge
+}
+
 export async function runJudge(
   testCase: TestCase,
   reportJson: unknown,
-  apiKey: string,
+  cfg: JudgeConfig,
   runs: number = 1,
   model: string = DEFAULT_JUDGE_MODEL,
 ): Promise<JudgeVerdict> {
   const verdicts: JudgeVerdict[] = [];
   for (let i = 0; i < runs; i++) {
-    const v = await runJudgeOnce(testCase, reportJson, apiKey, model);
+    const v = await runJudgeOnce(testCase, reportJson, cfg, model);
     if (v) verdicts.push(v);
   }
   if (verdicts.length === 0) {
@@ -82,16 +86,17 @@ export async function runJudge(
 async function runJudgeOnce(
   testCase: TestCase,
   reportJson: unknown,
-  apiKey: string,
+  cfg: JudgeConfig,
   model: string,
 ): Promise<JudgeVerdict | null> {
   const userMsg = buildJudgePrompt(testCase, reportJson);
-  const resp = await fetch(ANTHROPIC_URL, {
+  // Route through the Worker's /admin/judge endpoint so we don't need a
+  // local Anthropic key — the Worker reuses its own ANTHROPIC_KEY secret.
+  const resp = await fetch(`${cfg.workerUrl}/admin/judge?token=${encodeURIComponent(cfg.adminToken)}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      'User-Agent': 'CatHealthApp/eval CFNetwork/1.0',
     },
     body: JSON.stringify({
       model,

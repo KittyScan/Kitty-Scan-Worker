@@ -33,9 +33,10 @@ score is ≥ 3.5. Anything less is a regression.
 # install once
 npm install
 
-# Required env vars (put in .env or export)
-export ANTHROPIC_API_KEY=sk-ant-…   # your raw Anthropic key for the judge
-export ADMIN_TOKEN=…                # same one the dashboard uses
+# Required env var (put in .env or export)
+export ADMIN_TOKEN=…    # same one the dashboard uses; gates BOTH /analyze
+                        # AND /admin/judge so we don't need a separate
+                        # Anthropic key — Worker reuses its own.
 
 # All cases (default: Sonnet judge × 1 run, with /analyze caching)
 npx tsx evals/runner.ts
