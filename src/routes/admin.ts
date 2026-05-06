@@ -73,6 +73,40 @@ export async function handleAdminFeedback(
     return new Response('forbidden', { status: 403 });
   }
 
+  // PWA manifest — served inline from the same Worker so installing to
+  // home screen on iOS gets a proper standalone-app launch with our icon
+  // and color. Token is required to fetch the manifest itself so a random
+  // crawler can't enumerate the dashboard.
+  if (url.pathname === '/admin/manifest.json') {
+    const manifest = {
+      name: 'KittyScan Admin',
+      short_name: 'KittyScan',
+      description: 'Internal analytics dashboard',
+      start_url: `/admin?token=${encodeURIComponent(token)}`,
+      scope: '/admin',
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#fddc9f',
+      theme_color: '#fddc9f',
+      icons: [
+        {
+          src: 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">' +
+            '<rect width="512" height="512" rx="100" fill="#fddc9f"/>' +
+            '<text x="50%" y="56%" font-size="320" text-anchor="middle" dominant-baseline="middle">🐾</text>' +
+            '</svg>'),
+          sizes: '512x512',
+          type: 'image/svg+xml',
+          purpose: 'any maskable',
+        },
+      ],
+    };
+    return new Response(JSON.stringify(manifest), {
+      status: 200,
+      headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-store' },
+    });
+  }
+
   const section = url.searchParams.get('section') ?? 'overview';
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '200', 10), 1000);
 
@@ -838,8 +872,29 @@ function shell(body: string, section: string, token: string): string {
 <html lang="zh-Hans">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KittyScan · Admin · ${esc(section)}</title>
+<!-- PWA: install to iOS home screen via Safari → Share → Add to Home Screen.
+     Once installed it launches full-screen with no browser chrome,
+     indistinguishable from a native app for our internal use. -->
+<link rel="manifest" href="/admin/manifest.json?token=${encodeURIComponent(token)}">
+<meta name="theme-color" content="#fddc9f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="KittyScan Admin">
+<!-- Inline-SVG paw icon as the home-screen glyph. No file to host. -->
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">' +
+  '<rect width="180" height="180" rx="40" fill="#fddc9f"/>' +
+  '<text x="50%" y="56%" font-size="120" text-anchor="middle" dominant-baseline="middle">🐾</text>' +
+  '</svg>'
+)}">
+<link rel="icon" href="data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+  '<rect width="64" height="64" rx="14" fill="#fddc9f"/>' +
+  '<text x="50%" y="56%" font-size="44" text-anchor="middle" dominant-baseline="middle">🐾</text>' +
+  '</svg>'
+)}">
 <style>
   :root {
     --bg-top:#fddc9f; --bg-bot:#f5c382; --title:#4a2f18;
@@ -986,6 +1041,60 @@ function shell(body: string, section: string, token: string): string {
   .route-badge{display:inline-block;padding:1px 7px;border-radius:7px;background:rgba(168,90,26,.14);color:var(--link);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
   .risk-tag{display:inline-block;padding:2px 7px;border-radius:9px;background:#ffe5e5;color:#c62828;font-size:10px;font-weight:600}
   .model-cell{font-family:'SF Mono',monospace;font-size:11px;opacity:.8}
+
+  /* ─────────────────────────────────────────────────────────────────
+     Mobile / PWA standalone-mode tweaks. Most laptop layouts already
+     fluid; phone needs targeted help around tables (too many columns)
+     and dense header rows.
+     ───────────────────────────────────────────────────────────────── */
+  /* Honor the iOS notch when launched as PWA standalone. */
+  body{padding:env(safe-area-inset-top,24px) env(safe-area-inset-right,16px) env(safe-area-inset-bottom,24px) env(safe-area-inset-left,16px)}
+  /* Allow tab bar to scroll horizontally on phones — there are 6 tabs. */
+  .tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{flex-shrink:0}
+  /* Wide tables (Activity recent calls, etc.) → horizontal scroll on phones
+     instead of trying to wrap. Keeps every column visible without breaking
+     the row's reading order. */
+  .panel table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  .panel table thead,.panel table tbody,.panel table tr{display:table;width:100%;table-layout:fixed}
+
+  @media (max-width:760px) {
+    body{padding:max(12px,env(safe-area-inset-top)) 12px max(20px,env(safe-area-inset-bottom)) 12px}
+    h1{font-size:22px}
+    .header-row{margin-bottom:4px}
+    .sub{font-size:12px}
+    .tabs{gap:4px;margin-bottom:14px}
+    .tab{padding:7px 12px;font-size:12px}
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+    .stat{padding:11px 12px}
+    .stat .n{font-size:18px}
+    .stat .l{font-size:10px}
+    .row{grid-template-columns:1fr;gap:10px}
+    .panel{padding:12px;border-radius:11px}
+    .panel h3{font-size:13px}
+    /* Funnel gets cramped at narrow widths — shrink label column + drop
+       the trailing reset cell so bar gets max real estate. */
+    .funnel-row{grid-template-columns:90px 1fr 36px 38px;font-size:12px;gap:6px}
+    .funnel-label{font-size:12px}
+    /* Hero TL;DR: shrink head numbers so they fit. */
+    .health-score,.roi-big{font-size:38px}
+    .hero-headline{font-size:15px}
+    .hero-action-text{font-size:13px}
+    /* AI cards: pack tighter on small screens. */
+    .ai-card,.rm-card,.play{padding:10px 11px}
+    .ai-title,.rm-title{font-size:13px}
+    .ai-detail,.ai-meta,.rm-row,.play-why,.play-how,.play-expect{font-size:12px}
+    /* Lang toggle on phone: shrink. */
+    .lang-toggle{padding:2px;gap:1px}
+    .lang-btn{padding:4px 9px;font-size:11px}
+    /* Cost bars: shrink the label column so phone numbers like $12.34 fit. */
+    .bar-row{grid-template-columns:60px 1fr 60px;gap:7px}
+    .bar-label{font-size:10px}
+    .bar-value{font-size:11px}
+    /* Mini-bar inside table cells: a bit narrower at this size. */
+    .mini-bar{min-width:40px}
+  }
 </style>
 </head>
 <body class="lang-zh">

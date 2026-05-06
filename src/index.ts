@@ -90,8 +90,12 @@ export default {
       // Admin dashboard. Multi-section (overview / activity / feedback /
       // users / costs) — pick via ?section=. Auth via ?token=<ADMIN_TOKEN>
       // matched against a Worker secret. /admin/feedback kept as an alias
-      // for the original bookmark.
-      if ((url.pathname === '/admin' || url.pathname === '/admin/feedback')
+      // for the original bookmark. /admin/manifest.json is the PWA
+      // manifest so iOS Safari can "Add to Home Screen" with proper
+      // app-style standalone launch.
+      if ((url.pathname === '/admin' ||
+           url.pathname === '/admin/feedback' ||
+           url.pathname === '/admin/manifest.json')
           && request.method === 'GET') {
         return await handleAdminFeedback(request, env, ctx);
       }
