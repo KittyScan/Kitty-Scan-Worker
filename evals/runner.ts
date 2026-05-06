@@ -19,6 +19,7 @@ import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import type { TestCase, CaseResult, EvalReport, Expectation } from './types';
 import { runJudge } from './judge';
 import { renderReportHtml } from './report';
@@ -120,7 +121,12 @@ async function runCase(
   // Context-only mode: image missing → run without image_base64. The
   // analyzer still gets the cat profile + history + diary + prompt,
   // which exercises the reasoning even if vision is unavailable.
-  const imageBuf = hasImage ? await fs.readFile(join(EVAL_DIR, c.image)) : null;
+  //
+  // When an image IS present, downsample to 1568px JPEG q0.75 to mirror
+  // what the iOS client (premium tier) does. Without this, raw 8-20MB
+  // photos bust the Worker's 8MB body limit + waste Anthropic input tokens.
+  const rawBuf = hasImage ? await fs.readFile(join(EVAL_DIR, c.image)) : null;
+  const imageBuf = rawBuf ? await downsample(rawBuf) : null;
   const imageB64 = imageBuf ? imageBuf.toString('base64') : null;
 
   const prompt = buildPrompt(c);
@@ -154,7 +160,11 @@ async function runCase(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Device-Id': `eval-runner-${process.platform}`,
+      // Unique device id per run sidesteps the per-device daily rate limit
+      // (5/day) — eval can easily emit 22+ /analyze calls in one go. The
+      // per-IP hourly limit (20) is still defense-in-depth for runaway
+      // local loops, but a normal eval run stays under it.
+      'X-Device-Id': `eval-runner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       'X-Account-Token': '00000000-0000-4000-8000-000000000eva',  // synthetic eval token
       'X-Tier': 'premium',
       'User-Agent': 'CatHealthApp/eval CFNetwork/1.0',  // matches WAF allow-list
@@ -377,6 +387,19 @@ function aggregate(
       judgeRuns,
     },
   };
+}
+
+/**
+ * Resize the image to max 1568px on the long edge and re-encode as JPEG
+ * q=75. Mirrors what iOS PremiumTier does in ClaudeService.downsampleForAnalysis.
+ * Without this, a raw 9MB iPhone photo blows past the Worker's 8MB body cap.
+ */
+async function downsample(buf: Buffer): Promise<Buffer> {
+  return sharp(buf)
+    .rotate()                                            // honor EXIF orientation
+    .resize({ width: 1568, height: 1568, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 75, mozjpeg: true })
+    .toBuffer();
 }
 
 function percentile(sorted: number[], p: number): number {
