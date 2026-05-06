@@ -26,7 +26,7 @@
 import type { Env } from '../index';
 import { callAnthropicMessages } from '../lib/anthropic';
 
-const INSIGHTS_CACHE_KEY  = 'insights:cache';
+const INSIGHTS_CACHE_KEY  = 'insights:cache:v2';   // bump on schema change
 const INSIGHTS_CACHE_TTL  = 60 * 60;   // 1h
 const INSIGHTS_LIST_LIMIT = 1000;
 const ANALYST_MODEL       = 'claude-sonnet-4-6';
@@ -53,19 +53,31 @@ interface EntRow {
 export interface Insights {
   generatedAt: string;
   dataWindow: { fbCount: number; logCount: number; entCount: number; months: number };
-  health: { score: number; summary: string };       // 0-100
-  concerns: Array<{ severity: 'high'|'medium'|'low'; title: string; details: string }>;
+  // Bilingual fields — every text key is duplicated as _zh + _en. Renderer
+  // hides the inactive language via a CSS class on the <body>; toggling
+  // the active language is a CSS class flip, no re-render.
+  health: { score: number; summary_zh: string; summary_en: string };
+  concerns: Array<{
+    severity: 'high'|'medium'|'low';
+    title_zh: string; title_en: string;
+    details_zh: string; details_en: string;
+  }>;
   recommendations: Array<{
-    priority: number; title: string; rationale: string;
-    expectedImpact: string; effort: 'small'|'medium'|'large';
+    priority: number;
+    title_zh: string; title_en: string;
+    rationale_zh: string; rationale_en: string;
+    expectedImpact_zh: string; expectedImpact_en: string;
+    effort: 'small'|'medium'|'large';
   }>;
   optimizations: Array<{
     area: 'cost'|'latency'|'quality'|'retention'|'conversion'|'other';
-    suggestion: string; expectedGain: string;
+    suggestion_zh: string; suggestion_en: string;
+    expectedGain_zh: string; expectedGain_en: string;
   }>;
   actions: Array<{
     category: 'fix'|'build'|'investigate'|'experiment';
-    action: string; evidence: string;
+    action_zh: string; action_en: string;
+    evidence_zh: string; evidence_en: string;
   }>;
   rawDigest?: Record<string, unknown>;  // optional, for debugging
 }
@@ -323,38 +335,61 @@ async function aggregateForAnalysis(env: Env): Promise<DataDigest> {
 // ===========================================================================
 
 const ANALYST_SYSTEM_PROMPT = `
-You are KittyScan's senior product analyst. Read the production telemetry
-digest the user gives you and return ONE JSON object — nothing else, no
-markdown fences, no prose around it.
+You are KittyScan's senior product analyst. Read the telemetry digest and
+return ONE JSON object — nothing else, no markdown fences, no prose around it.
 
-Principles:
-- Cross-reference axes. A 👎 reason that clusters by app version or country
-  is a sharper signal than raw count.
-- Skip restating the table. Surface the second-derivative read.
-- Justify every recommendation with a data point.
-- Be specific about impact + effort.
-- Don't pitch features that break the privacy-first positioning.
+CRITICAL: Be BRUTALLY concise. The reader is the founder, glancing on a
+phone between meetings. Long paragraphs get ignored.
+
+Per-field length limits (HARD):
+- title_*: max 8 words / 12 字
+- summary_*: max 25 words / 35 字
+- details_*: max 25 words / 35 字 — ONE sentence, with the data point
+- rationale_*: max 20 words / 25 字
+- expectedImpact_* / expectedGain_*: max 15 words / 20 字
+- action_*: max 15 words / 20 字
+- evidence_*: max 20 words / 25 字
+
+Every text field MUST have BOTH _zh (Chinese) and _en (English) versions.
+The two should convey the same information, not just translate verbatim —
+each in its language's natural voice.
+
+Operating principles:
+- Cross-reference axes. A 👎 that clusters by app version is sharper than raw count.
+- Skip restating the table. Surface the second-derivative.
+- Justify with a specific data point.
+- Don't pitch features that break privacy-first positioning.
 
 Output JSON shape:
 {
-  "health": { "score": <0-100 int>, "summary": "<1-2 sentences>" },
-  "concerns": [{ "severity":"high"|"medium"|"low", "title":"…", "details":"…" }],
+  "health": { "score": <0-100 int>, "summary_zh": "…", "summary_en": "…" },
+  "concerns": [{
+    "severity":"high"|"medium"|"low",
+    "title_zh":"…","title_en":"…",
+    "details_zh":"…","details_en":"…"
+  }],
   "recommendations": [{
-    "priority": <int, 1=highest>, "title":"…", "rationale":"…",
-    "expectedImpact":"…", "effort":"small"|"medium"|"large"
+    "priority": <1=highest>,
+    "title_zh":"…","title_en":"…",
+    "rationale_zh":"…","rationale_en":"…",
+    "expectedImpact_zh":"…","expectedImpact_en":"…",
+    "effort":"small"|"medium"|"large"
   }],
   "optimizations": [{
     "area":"cost"|"latency"|"quality"|"retention"|"conversion"|"other",
-    "suggestion":"…", "expectedGain":"…"
+    "suggestion_zh":"…","suggestion_en":"…",
+    "expectedGain_zh":"…","expectedGain_en":"…"
   }],
   "actions": [{
     "category":"fix"|"build"|"investigate"|"experiment",
-    "action":"…", "evidence":"…"
+    "action_zh":"…","action_en":"…",
+    "evidence_zh":"…","evidence_en":"…"
   }]
 }
 
-Rules: 3-5 items per array. Priority numbered 1,2,3… Health 90+ only
-if no high-severity concerns. Output the JSON even if data is sparse.
+Rules: 3-5 items per array (more than 5 = noise). Priority 1,2,3,…
+Health 90+ only if zero high-severity concerns. Always emit the JSON
+even if data is sparse — empty arrays OK.
 `.trim();
 
 async function runAnalyst(
@@ -393,7 +428,7 @@ async function runAnalyst(
   try {
     const parsed = JSON.parse(cleaned) as Pick<Insights, 'health'|'concerns'|'recommendations'|'optimizations'|'actions'>;
     return {
-      health: parsed.health ?? { score: 0, summary: 'unparseable' },
+      health: parsed.health ?? { score: 0, summary_zh: '解析失败', summary_en: 'unparseable' },
       concerns:        Array.isArray(parsed.concerns)        ? parsed.concerns        : [],
       recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
       optimizations:   Array.isArray(parsed.optimizations)   ? parsed.optimizations   : [],
@@ -411,8 +446,16 @@ async function runAnalyst(
 
 function fallback(kind: string, detail: string): Pick<Insights, 'health'|'concerns'|'recommendations'|'optimizations'|'actions'> {
   return {
-    health: { score: 0, summary: `Analyst unavailable (${kind}). Showing raw digest only.` },
-    concerns: [{ severity: 'low', title: 'Analyst call failed', details: detail }],
+    health: {
+      score: 0,
+      summary_zh: `分析器无法响应 (${kind})。仅显示原始数据。`,
+      summary_en: `Analyst unavailable (${kind}). Showing raw digest only.`,
+    },
+    concerns: [{
+      severity: 'low',
+      title_zh: '分析调用失败', title_en: 'Analyst call failed',
+      details_zh: detail, details_en: detail,
+    }],
     recommendations: [], optimizations: [], actions: [],
   };
 }

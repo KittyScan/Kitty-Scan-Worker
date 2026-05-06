@@ -391,43 +391,75 @@ async function renderCosts(env: Env): Promise<string> {
 // ===========================================================================
 
 function renderInsights(token: string): string {
-  // We render the shell + a tiny JS fetcher. The actual analysis is
-  // fetched at view time so cache control + refresh button work
-  // entirely client-side. Token is templated in (this page is already
-  // gated on the same token, so no new exposure).
   const t = JSON.stringify(token);
   return `
+    <div id="insights-controls" class="panel" style="display:flex;align-items:center;gap:14px;padding:10px 14px;flex-wrap:wrap">
+      <strong style="color:var(--title);font-size:14px">🧠 AI 分析师 · AI Analyst</strong>
+      <div style="flex:1"></div>
+      <div class="lang-toggle">
+        <button id="btn-zh" class="lang-btn active">中文</button>
+        <button id="btn-en" class="lang-btn">EN</button>
+      </div>
+      <a href="#" id="refresh-btn" style="font-size:12px;color:var(--link)" data-zh="刷新 ↻" data-en="refresh ↻">刷新 ↻</a>
+    </div>
     <div id="insights-loading" class="panel" style="text-align:center;padding:48px">
       <div style="font-size:32px">🧠</div>
-      <div style="margin-top:8px;font-weight:600;color:var(--title)">Analyst is reading your data…</div>
-      <div style="font-size:12px;opacity:.6;margin-top:6px">First load takes ~5-8 seconds (Claude). Cached for 1 hour after.</div>
+      <div style="margin-top:8px;font-weight:600;color:var(--title)" data-zh="分析师正在阅读数据…" data-en="Analyst reading data…">分析师正在阅读数据…</div>
+      <div style="font-size:12px;opacity:.6;margin-top:6px" data-zh="首次约 ~5-10 秒 · 缓存 1 小时" data-en="~5-10s first time · cached 1 hour">首次约 ~5-10 秒 · 缓存 1 小时</div>
     </div>
     <div id="insights-root" style="display:none"></div>
-    <div class="hint" style="margin-top:18px">
-      Powered by Claude Sonnet · refreshed at most once an hour to keep token spend minimal
-      · <a href="#" id="refresh-btn" style="color:var(--link);text-decoration:underline">force refresh now</a>
-    </div>
     <script>
     (function() {
       const TOKEN = ${t};
       const loading = document.getElementById('insights-loading');
       const root    = document.getElementById('insights-root');
       const refresh = document.getElementById('refresh-btn');
+      const btnZh = document.getElementById('btn-zh');
+      const btnEn = document.getElementById('btn-en');
 
-      function severityColor(s) {
-        if (s === 'high')   return '#f8d7da';
-        if (s === 'medium') return '#fff3cd';
-        return '#e2e3e5';
+      let currentLang = localStorage.getItem('insights-lang') || 'zh';
+      function applyLang(l) {
+        currentLang = l;
+        localStorage.setItem('insights-lang', l);
+        document.body.classList.toggle('lang-zh', l === 'zh');
+        document.body.classList.toggle('lang-en', l === 'en');
+        btnZh.classList.toggle('active', l === 'zh');
+        btnEn.classList.toggle('active', l === 'en');
+      }
+      btnZh.addEventListener('click', function() { applyLang('zh'); });
+      btnEn.addEventListener('click', function() { applyLang('en'); });
+      applyLang(currentLang);
+
+      function severityIcon(s) {
+        if (s === 'high')   return { icon: '🔴', bg: '#ffe5e5', label_zh: '严重', label_en: 'high' };
+        if (s === 'medium') return { icon: '🟡', bg: '#fff7e0', label_zh: '中等', label_en: 'med'  };
+        return { icon: '🟢', bg: '#eaf5ea', label_zh: '轻微', label_en: 'low' };
       }
       function effortBadge(e) {
-        if (e === 'large')  return '<span class="badge" style="background:#f8d7da">large</span>';
-        if (e === 'medium') return '<span class="badge" style="background:#fff3cd">medium</span>';
-        return '<span class="badge" style="background:#d4edda">small</span>';
+        const map = {
+          small:  { bg: '#d4edda', zh: '小', en: 'S' },
+          medium: { bg: '#fff3cd', zh: '中', en: 'M' },
+          large:  { bg: '#f8d7da', zh: '大', en: 'L' },
+        };
+        const m = map[e] || map.small;
+        return '<span class="badge effort" style="background:' + m.bg + '">' +
+               '<span class="zh-only">'+m.zh+'</span><span class="en-only">'+m.en+'</span></span>';
+      }
+      function categoryIcon(c) {
+        return ({fix:'🔧',build:'🚀',investigate:'🔍',experiment:'🧪'})[c] || '•';
+      }
+      function areaIcon(a) {
+        return ({cost:'💰',latency:'⚡',quality:'✨',retention:'🔁',conversion:'💳',other:'•'})[a] || '•';
       }
       function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g, c => ({
           '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"
         }[c]));
+      }
+      // Bilingual span — shows whichever language is active. Single source
+      // of truth: data carries both, CSS reveals one.
+      function bi(zh, en) {
+        return '<span class="zh-only">'+esc(zh)+'</span><span class="en-only">'+esc(en)+'</span>';
       }
 
       function render(data) {
@@ -436,78 +468,91 @@ function renderInsights(token: string): string {
                           : '#c62828';
         const w = data.dataWindow || {};
 
-        const concerns = (data.concerns || []).map(c => \`
-          <div class="card" style="background:\${severityColor(c.severity)}">
-            <div class="card-h">
-              <span class="badge" style="background:rgba(0,0,0,.08)">\${esc(c.severity)}</span>
-              <strong>\${esc(c.title)}</strong>
-            </div>
-            <div class="card-b">\${esc(c.details)}</div>
-          </div>\`).join('') || '<div style="opacity:.5">No concerns flagged.</div>';
+        const concerns = (data.concerns || []).map(c => {
+          const sev = severityIcon(c.severity);
+          return '<div class="ai-card" style="background:'+sev.bg+'">' +
+            '<div class="ai-card-row">' +
+              '<span class="ai-icon">'+sev.icon+'</span>' +
+              '<strong class="ai-title">'+bi(c.title_zh, c.title_en)+'</strong>' +
+            '</div>' +
+            '<div class="ai-detail">'+bi(c.details_zh, c.details_en)+'</div>' +
+          '</div>';
+        }).join('') || '<div class="empty">' + bi('无明显问题', 'No concerns') + '</div>';
 
-        const recs = (data.recommendations || []).map(r => \`
-          <div class="card">
-            <div class="card-h">
-              <span class="prio">#\${r.priority}</span>
-              <strong>\${esc(r.title)}</strong>
-              \${effortBadge(r.effort)}
-            </div>
-            <div class="card-b"><em>Why:</em> \${esc(r.rationale)}</div>
-            <div class="card-b"><em>Impact:</em> \${esc(r.expectedImpact)}</div>
-          </div>\`).join('') || '<div style="opacity:.5">No feature recommendations yet.</div>';
+        const recs = (data.recommendations || []).map(r =>
+          '<div class="ai-card">' +
+            '<div class="ai-card-row">' +
+              '<span class="prio">#'+r.priority+'</span>' +
+              '<strong class="ai-title">'+bi(r.title_zh, r.title_en)+'</strong>' +
+              effortBadge(r.effort) +
+            '</div>' +
+            '<div class="ai-detail">' + bi(r.rationale_zh, r.rationale_en) + '</div>' +
+            '<div class="ai-meta">' +
+              '<span class="zh-only">📈 影响:</span><span class="en-only">📈 Impact:</span> ' +
+              bi(r.expectedImpact_zh, r.expectedImpact_en) +
+            '</div>' +
+          '</div>'
+        ).join('') || '<div class="empty">' + bi('暂无推荐', 'No recommendations') + '</div>';
 
-        const opts = (data.optimizations || []).map(o => \`
-          <div class="card">
-            <div class="card-h">
-              <span class="badge" style="background:rgba(168,90,26,.15);color:var(--link)">\${esc(o.area)}</span>
-              <strong>\${esc(o.suggestion)}</strong>
-            </div>
-            <div class="card-b"><em>Expected gain:</em> \${esc(o.expectedGain)}</div>
-          </div>\`).join('') || '<div style="opacity:.5">Nothing to optimize.</div>';
+        const opts = (data.optimizations || []).map(o =>
+          '<div class="ai-card">' +
+            '<div class="ai-card-row">' +
+              '<span class="ai-icon">'+areaIcon(o.area)+'</span>' +
+              '<strong class="ai-title">'+bi(o.suggestion_zh, o.suggestion_en)+'</strong>' +
+            '</div>' +
+            '<div class="ai-meta"><em class="zh-only">收益:</em><em class="en-only">Gain:</em> ' +
+              bi(o.expectedGain_zh, o.expectedGain_en) +
+            '</div>' +
+          '</div>'
+        ).join('') || '<div class="empty">' + bi('暂无优化点', 'No optimizations') + '</div>';
 
-        const acts = (data.actions || []).map(a => \`
-          <tr>
-            <td><span class="badge" style="background:rgba(0,0,0,.06)">\${esc(a.category)}</span></td>
-            <td><strong>\${esc(a.action)}</strong></td>
-            <td class="meta">\${esc(a.evidence)}</td>
-          </tr>\`).join('') || '<tr><td colspan="3" style="opacity:.5;padding:14px;text-align:center">No actions queued.</td></tr>';
+        const acts = (data.actions || []).map(a =>
+          '<div class="ai-card act">' +
+            '<div class="ai-card-row">' +
+              '<span class="ai-icon">'+categoryIcon(a.category)+'</span>' +
+              '<strong class="ai-title">'+bi(a.action_zh, a.action_en)+'</strong>' +
+            '</div>' +
+            '<div class="ai-meta"><em class="zh-only">依据:</em><em class="en-only">Why:</em> ' +
+              bi(a.evidence_zh, a.evidence_en) +
+            '</div>' +
+          '</div>'
+        ).join('') || '<div class="empty">' + bi('本周无行动', 'No actions this week') + '</div>';
 
-        root.innerHTML = \`
-          <div class="panel" style="background:linear-gradient(135deg,#fffaf2,#fdf3e3)">
-            <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
-              <div style="font-size:48px;font-weight:700;color:\${healthColor};font-variant-numeric:tabular-nums;line-height:1">\${data.health.score}</div>
-              <div style="flex:1;min-width:200px">
-                <div style="font-size:12px;opacity:.6;text-transform:uppercase;letter-spacing:.5px">Health score</div>
-                <div style="font-size:15px;color:var(--title);font-weight:500;margin-top:2px">\${esc(data.health.summary)}</div>
-              </div>
-              <div style="font-size:11px;opacity:.6;text-align:right">
-                Generated \${esc((data.generatedAt || '').slice(0,16).replace('T',' '))} UTC<br>
-                Window: \${w.fbCount||0} feedback · \${w.logCount||0} calls · \${w.entCount||0} accounts
-              </div>
-            </div>
-          </div>
+        const generated = (data.generatedAt || '').slice(0,16).replace('T',' ');
 
-          <div class="row">
-            <div class="panel"><h3>⚠️ Concerns</h3>\${concerns}</div>
-            <div class="panel"><h3>🚀 Feature recommendations (priority order)</h3>\${recs}</div>
-          </div>
+        root.innerHTML =
+          '<div class="panel health-card">' +
+            '<div class="health-row">' +
+              '<div class="health-score" style="color:'+healthColor+'">'+data.health.score+'</div>' +
+              '<div class="health-text">' +
+                '<div class="health-label">' + bi('健康度', 'Health') + '</div>' +
+                '<div class="health-summary">'+bi(data.health.summary_zh, data.health.summary_en)+'</div>' +
+              '</div>' +
+              '<div class="health-meta">' +
+                bi(generated + ' UTC', generated + ' UTC') + '<br>' +
+                bi(w.entCount + ' 用户 · ' + w.logCount + ' 调用 · ' + w.fbCount + ' 反馈',
+                   w.entCount + ' users · ' + w.logCount + ' calls · ' + w.fbCount + ' feedback') +
+              '</div>' +
+            '</div>' +
+          '</div>' +
 
-          <div class="panel"><h3>⚡ Optimizations</h3>\${opts}</div>
+          '<div class="row">' +
+            '<div class="panel"><h3>⚠️ ' + bi('关切', 'Concerns') + '</h3>' + concerns + '</div>' +
+            '<div class="panel"><h3>🚀 ' + bi('推荐 feature (按优先级)', 'Recommendations (by priority)') + '</h3>' + recs + '</div>' +
+          '</div>' +
 
-          <div class="panel">
-            <h3>✅ Action items (this week)</h3>
-            <table>
-              <thead><tr><th>Type</th><th>Action</th><th>Evidence</th></tr></thead>
-              <tbody>\${acts}</tbody>
-            </table>
-          </div>
-        \`;
+          '<div class="row">' +
+            '<div class="panel"><h3>⚡ ' + bi('优化机会', 'Optimizations') + '</h3>' + opts + '</div>' +
+            '<div class="panel"><h3>✅ ' + bi('本周行动项', 'Actions this week') + '</h3>' + acts + '</div>' +
+          '</div>';
+
         loading.style.display = 'none';
         root.style.display = 'block';
       }
 
       function renderError(msg) {
-        loading.innerHTML = '<div style="color:#c62828;font-weight:600">Failed to load insights</div>' +
+        loading.innerHTML = '<div style="color:#c62828;font-weight:600">' +
+                            bi('加载失败', 'Failed to load') + '</div>' +
                             '<div style="font-size:12px;opacity:.7;margin-top:6px">' + esc(msg) + '</div>';
       }
 
@@ -656,6 +701,32 @@ function shell(body: string, section: string, token: string): string {
   .card-b em{font-style:normal;font-weight:600;opacity:.7}
   .badge{display:inline-block;padding:2px 8px;border-radius:9px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
   .prio{background:var(--link);color:white;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+  /* Bilingual toggle — body class flips which spans show. */
+  body.lang-zh .en-only,
+  body.lang-en .zh-only { display: none; }
+  .lang-toggle{display:inline-flex;background:rgba(0,0,0,.04);border-radius:10px;padding:3px;gap:2px}
+  .lang-btn{border:0;background:transparent;color:var(--body);font-size:12px;font-weight:600;
+    padding:5px 12px;border-radius:8px;cursor:pointer}
+  .lang-btn.active{background:var(--link);color:white}
+  /* Compact AI insight cards */
+  .ai-card{background:rgba(0,0,0,.02);border-radius:11px;padding:11px 13px;margin-bottom:9px}
+  .ai-card.act{background:rgba(168,90,26,.05)}
+  .ai-card-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .ai-icon{font-size:16px;line-height:1}
+  .ai-title{flex:1;font-size:13.5px;color:var(--title);font-weight:600;line-height:1.35}
+  .ai-detail{font-size:12.5px;color:var(--body);line-height:1.5;margin-top:2px}
+  .ai-meta{font-size:11.5px;color:var(--body);opacity:.85;margin-top:5px;line-height:1.4}
+  .ai-meta em{font-style:normal;font-weight:600;opacity:.65;margin-right:3px}
+  .effort{font-size:10px;padding:1px 7px}
+  .empty{opacity:.5;font-size:13px;padding:6px 0}
+  /* Health hero */
+  .health-card{background:linear-gradient(135deg,#fffaf2,#fdf3e3)}
+  .health-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .health-score{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+  .health-text{flex:1;min-width:200px}
+  .health-label{font-size:11px;opacity:.55;text-transform:uppercase;letter-spacing:.6px}
+  .health-summary{font-size:14px;color:var(--title);font-weight:500;margin-top:3px;line-height:1.5}
+  .health-meta{font-size:11px;opacity:.6;text-align:right;line-height:1.6}
 </style>
 </head>
 <body>
