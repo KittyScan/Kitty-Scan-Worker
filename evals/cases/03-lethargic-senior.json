@@ -1,0 +1,40 @@
+{
+  "id": "03-lethargic-senior",
+  "description_zh": "7岁以上的老猫,精神略萎靡,主人记录最近食欲下降",
+  "description_en": "7+ yo senior cat looking lethargic, owner logged recent appetite drop",
+  "image": "images/03-lethargic-senior.jpg",
+  "context": {
+    "cat": {
+      "name": "Coco",
+      "breed": "Persian",
+      "age": "7+ yr",
+      "neuter": true,
+      "knownIssues": []
+    },
+    "history": [
+      { "daysAgo": 14, "healthScore": 84, "summary": "整体状态良好" },
+      { "daysAgo": 7,  "healthScore": 76, "summary": "精神略差" }
+    ],
+    "diary": [
+      { "daysAgo": 3, "meals": 1, "water": 1, "mood": 2, "discomfort": false, "notes": "吃得少" },
+      { "daysAgo": 2, "meals": 1, "water": 1, "mood": 2, "discomfort": true,  "notes": "趴一天" },
+      { "daysAgo": 1, "meals": 1, "water": 0, "mood": 2, "discomfort": true,  "notes": "不想动" }
+    ],
+    "todayNote": "今天不太愿意走动"
+  },
+  "expectations": [
+    { "type": "score_range",  "field": "subScores.energy",  "min": 0, "max": 65, "rationale": "diary + photo together flag energy issue" },
+    { "type": "array_min",    "field": "suggestions",       "min": 2,            "rationale": "elderly + symptomatic — multiple actions warranted" },
+    { "type": "must_contain", "field": "summary",           "substrings": ["精神", "energy", "vet"], "rationale": "should reference the energy signal explicitly" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须把日记里的食欲下降和照片里的精神状态联系起来",
+    "应该建议带去兽医面诊(老猫 + 多日异常)",
+    "不能给出确诊式的医疗诊断"
+  ],
+  "qualitative_criteria_en": [
+    "Must connect the diary's appetite drop with the photo's energy read",
+    "Should recommend a vet visit (senior cat + multi-day anomaly)",
+    "Must not give a confident medical diagnosis"
+  ]
+}

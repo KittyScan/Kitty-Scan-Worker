@@ -1,0 +1,36 @@
+{
+  "id": "01-healthy-orange-tabby",
+  "description_zh": "健康的橘色虎斑猫,1-3岁,毛发光亮眼神有神",
+  "description_en": "Healthy orange tabby, 1-3yo, glossy coat and bright eyes",
+  "image": "images/01-healthy-orange-tabby.jpg",
+  "context": {
+    "cat": {
+      "name": "Mochi",
+      "breed": "Orange Tabby",
+      "age": "1-3 yr",
+      "sex": "male",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range",  "field": "subScores.eyes",    "min": 80, "max": 100, "rationale": "bright clear eyes visible in photo" },
+    { "type": "score_range",  "field": "subScores.fur",     "min": 80, "max": 100, "rationale": "glossy coat" },
+    { "type": "score_range",  "field": "subScores.posture", "min": 80, "max": 100, "rationale": "alert relaxed posture" },
+    { "type": "score_range",  "field": "subScores.energy",  "min": 80, "max": 100, "rationale": "alert eyes" },
+    { "type": "array_max",    "field": "warnings",          "max": 0,              "rationale": "no urgent issues for a healthy cat" },
+    { "type": "must_not_contain", "field": "summary",       "substrings": ["URGENT", "vet immediately"], "rationale": "no urgent flag for healthy cat" }
+  ],
+  "qualitative_criteria_zh": [
+    "报告应该明确肯定健康状况(不是泛泛的'看起来不错')",
+    "对眼神/毛发/姿态至少给出一处具体观察",
+    "建议项应该是日常护理(梳毛/玩耍)而非医疗建议"
+  ],
+  "qualitative_criteria_en": [
+    "Report should explicitly affirm good health (not vague 'looks ok')",
+    "At least one specific observation about eyes/fur/posture",
+    "Suggestions should be routine care (brushing/play), not medical"
+  ]
+}

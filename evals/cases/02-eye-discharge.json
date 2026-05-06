@@ -1,0 +1,33 @@
+{
+  "id": "02-eye-discharge",
+  "description_zh": "眼睛有分泌物的猫,需要识别眼部问题",
+  "description_en": "Cat with visible eye discharge — should flag eye issue",
+  "image": "images/02-eye-discharge.jpg",
+  "context": {
+    "cat": {
+      "name": "Daifuku",
+      "breed": "Domestic Shorthair",
+      "age": "3-7 yr",
+      "neuter": true,
+      "knownIssues": ["容易过敏"]
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": "今天发现眼角有点分泌物"
+  },
+  "expectations": [
+    { "type": "score_range",  "field": "subScores.eyes", "min": 0,  "max": 75,   "rationale": "eye issue should pull eye score below 75" },
+    { "type": "must_contain", "field": "eyesCondition",  "substrings": ["分泌物", "eye"], "rationale": "must mention the eye signal in some form" },
+    { "type": "array_min",    "field": "suggestions",    "min": 1,                       "rationale": "should suggest at least one action" }
+  ],
+  "qualitative_criteria_zh": [
+    "报告必须明确点出眼部分泌物,不能视而不见",
+    "应该提到'建议兽医检查'或类似的建议",
+    "其他维度(毛发/姿态)如果没问题不应被拉低"
+  ],
+  "qualitative_criteria_en": [
+    "Report must explicitly call out the eye discharge",
+    "Should suggest a vet check or equivalent",
+    "Other axes (fur/posture) shouldn't be pulled down if they look fine"
+  ]
+}

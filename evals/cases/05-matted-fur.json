@@ -1,0 +1,35 @@
+{
+  "id": "05-matted-fur",
+  "description_zh": "毛发明显打结/油腻的长毛猫,需识别毛发问题",
+  "description_en": "Long-hair cat with visibly matted/greasy fur — should flag fur issue",
+  "image": "images/05-matted-fur.jpg",
+  "context": {
+    "cat": {
+      "name": "Luna",
+      "breed": "Maine Coon",
+      "age": "3-7 yr",
+      "neuter": true,
+      "knownIssues": ["不爱被梳毛"]
+    },
+    "history": [
+      { "daysAgo": 30, "healthScore": 82, "summary": "毛发略需梳理" }
+    ],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "score_range",  "field": "subScores.fur", "min": 0, "max": 75,   "rationale": "matting → fur score should drop below 75" },
+    { "type": "must_contain", "field": "furCondition",  "substrings": ["打结", "mat"], "rationale": "fur condition must reference the visible matting" },
+    { "type": "score_range",  "field": "subScores.eyes",  "min": 70, "max": 100, "rationale": "fur issue shouldn't drag eye score down" }
+  ],
+  "qualitative_criteria_zh": [
+    "毛发问题必须具体描述(打结/油腻/局部 vs 整体),不能笼统说'毛发不太好'",
+    "建议项中应该包含梳毛或修毛的实际操作,不只是'多注意'",
+    "和上次记录(30 天前略需梳理)对比,语气应该体现'变差'"
+  ],
+  "qualitative_criteria_en": [
+    "Fur issue must be specific (matting? greasy? localised?), not generic 'fur not great'",
+    "Suggestions must include concrete brushing/grooming, not vague 'pay attention'",
+    "Should reference the 30-day-ago history showing this is worsening"
+  ]
+}

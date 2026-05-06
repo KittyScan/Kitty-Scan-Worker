@@ -1,0 +1,33 @@
+{
+  "id": "04-no-cat-detected",
+  "description_zh": "照片里没有猫(例如食物/狗/风景),系统应识别出来",
+  "description_en": "Photo with no cat (e.g. food / dog / landscape) — system should detect",
+  "image": "images/04-no-cat-detected.jpg",
+  "context": {
+    "cat": {
+      "name": "Mochi",
+      "breed": "Domestic Shorthair",
+      "age": "1-3 yr",
+      "neuter": true
+    },
+    "history": [],
+    "diary": [],
+    "todayNote": ""
+  },
+  "expectations": [
+    { "type": "equals",       "field": "breed",       "value": "no-cat-detected", "rationale": "the breed sentinel is the agreed signal for no-cat" },
+    { "type": "equals",       "field": "healthScore", "value": 0,                  "rationale": "no health score when no cat present" },
+    { "type": "must_contain", "field": "summary",     "substrings": ["看清", "clear", "cat"], "rationale": "summary should explain to retake photo" },
+    { "type": "array_max",    "field": "warnings",    "max": 0,                    "rationale": "no warnings — there's no cat to warn about" }
+  ],
+  "qualitative_criteria_zh": [
+    "必须明确告诉主人没看到猫,而不是硬给评分",
+    "语气友好,不能让主人觉得是错误",
+    "应该建议重新拍一张"
+  ],
+  "qualitative_criteria_en": [
+    "Must explicitly tell the owner no cat was seen, NOT fabricate scores",
+    "Friendly tone — not scolding the user",
+    "Should suggest re-taking the photo"
+  ]
+}
