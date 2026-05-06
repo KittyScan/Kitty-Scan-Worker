@@ -262,6 +262,9 @@ function readPath(obj: unknown, path: string): unknown {
 // =========================================================
 
 function buildPrompt(c: TestCase): string {
+  // Mirrors iOS PromptBuilder.analysisEN — same hard rules so the eval
+  // measures the production behavior, not a stripped-down toy variant.
+  // Whenever PromptBuilder changes, mirror the change here too.
   const cat = c.context.cat;
   const issues = (cat.knownIssues ?? []).join(', ');
   const history = (c.context.history ?? []).map(h =>
@@ -276,11 +279,37 @@ function buildPrompt(c: TestCase): string {
     (history ? `History:\n${history}\n\n` : '') +
     (diary ? `Recent diary:\n${diary}\n\n` : '') +
     (c.context.todayNote ? `Today's note: ${c.context.todayNote}\n\n` : '') +
-    `Analyze the photo and return strict JSON with: breed, furColor, personality, ` +
-    `subScores {eyes, fur, posture, energy} (0-100 ints), eyesCondition, furCondition, ` +
-    `postureCondition, suggestions (array), warnings (array), parentBreeds (array), ` +
-    `lifestyleTag (water|food|exercise), lifestyleDetail, summary. ` +
-    `JSON only, no markdown fences.`;
+    `[STRUCTURED SCORING]
+Grade four dimensions independently 0-100: eyes / fur / posture / energy.
+
+[HARD RULES]
+1. Find the weakest first: identify which dimension is weakest with a
+   specific deduction (even minor). No cat scores ≥90 across all four.
+2. At least ONE of the four sub-scores MUST be ≤ 79.
+3. Every pair of sub-scores must differ by ≥ 4. Forbidden: 88-88-88-88
+   or 90-89-91-90 — anti-cluster is mandatory.
+4. History is only for trend comparison; do NOT anchor today's score
+   on past values.
+5. Text must match scores: "bright eyes" → ≥88, "coarse fur" → ≤78,
+   "listless" → ≤65.
+
+[SAFETY]
+- No cat / blurry photo: breed="no-cat-detected", healthScore=0,
+  summary asks owner to retake.
+- Severe symptom (labored breathing, bleeding, seizure, abnormal
+  pupils, severe dehydration): warning entry must START with [URGENT].
+- Mild issues (small redness, etc.) must NOT trigger [URGENT].
+
+[OUTPUT]
+Two sections separated by a blank line:
+1. 1-2 plain sentences naming the weakest dimension + its deduction.
+2. One JSON object — no markdown fences, nothing after — with fields:
+   breed, furColor, personality, subScores {eyes, fur, posture, energy},
+   eyesCondition, furCondition, postureCondition, suggestions (array),
+   warnings (array, each may start with [URGENT]), parentBreeds (array),
+   lifestyleTag (water|food|exercise), lifestyleDetail, summary.
+
+Final reminder: at least one sub-score ≤ 79, all pairs ≥ 4 apart.`;
 }
 
 // =========================================================
