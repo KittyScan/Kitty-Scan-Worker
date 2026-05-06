@@ -400,12 +400,12 @@ function renderInsights(token: string): string {
         <button id="btn-zh" class="lang-btn active">中文</button>
         <button id="btn-en" class="lang-btn">EN</button>
       </div>
-      <a href="#" id="refresh-btn" style="font-size:12px;color:var(--link)" data-zh="刷新 ↻" data-en="refresh ↻">刷新 ↻</a>
+      <a href="#" id="refresh-btn" style="font-size:12px;color:var(--link)">↻</a>
     </div>
     <div id="insights-loading" class="panel" style="text-align:center;padding:48px">
       <div style="font-size:32px">🧠</div>
-      <div style="margin-top:8px;font-weight:600;color:var(--title)" data-zh="分析师正在阅读数据…" data-en="Analyst reading data…">分析师正在阅读数据…</div>
-      <div style="font-size:12px;opacity:.6;margin-top:6px" data-zh="首次约 ~5-10 秒 · 缓存 1 小时" data-en="~5-10s first time · cached 1 hour">首次约 ~5-10 秒 · 缓存 1 小时</div>
+      <div style="margin-top:8px;font-weight:600;color:var(--title);"><span class="zh-only">AI 在读你的数据…</span><span class="en-only">AI reading your data…</span></div>
+      <div style="font-size:12px;opacity:.6;margin-top:6px"><span class="zh-only">首次 ~10-15 秒 · 缓存 1 小时</span><span class="en-only">~10-15s first time · cached 1 hour</span></div>
     </div>
     <div id="insights-root" style="display:none"></div>
     <script>
@@ -430,122 +430,158 @@ function renderInsights(token: string): string {
       btnEn.addEventListener('click', function() { applyLang('en'); });
       applyLang(currentLang);
 
-      function severityIcon(s) {
-        if (s === 'high')   return { icon: '🔴', bg: '#ffe5e5', label_zh: '严重', label_en: 'high' };
-        if (s === 'medium') return { icon: '🟡', bg: '#fff7e0', label_zh: '中等', label_en: 'med'  };
-        return { icon: '🟢', bg: '#eaf5ea', label_zh: '轻微', label_en: 'low' };
-      }
-      function effortBadge(e) {
-        const map = {
-          small:  { bg: '#d4edda', zh: '小', en: 'S' },
-          medium: { bg: '#fff3cd', zh: '中', en: 'M' },
-          large:  { bg: '#f8d7da', zh: '大', en: 'L' },
-        };
-        const m = map[e] || map.small;
-        return '<span class="badge effort" style="background:' + m.bg + '">' +
-               '<span class="zh-only">'+m.zh+'</span><span class="en-only">'+m.en+'</span></span>';
-      }
-      function categoryIcon(c) {
-        return ({fix:'🔧',build:'🚀',investigate:'🔍',experiment:'🧪'})[c] || '•';
-      }
-      function areaIcon(a) {
-        return ({cost:'💰',latency:'⚡',quality:'✨',retention:'🔁',conversion:'💳',other:'•'})[a] || '•';
-      }
       function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g, c => ({
           '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"
         }[c]));
       }
-      // Bilingual span — shows whichever language is active. Single source
-      // of truth: data carries both, CSS reveals one.
       function bi(zh, en) {
         return '<span class="zh-only">'+esc(zh)+'</span><span class="en-only">'+esc(en)+'</span>';
       }
+      function trendIcon(t) { return t === 'up' ? '📈' : t === 'down' ? '📉' : '→'; }
+      function trendColor(t) { return t === 'up' ? '#2e7d32' : t === 'down' ? '#c62828' : '#6e4e32'; }
+      function priorityColor(p) {
+        return p === 'P0' ? '#c62828' :
+               p === 'P1' ? '#ed6c02' :
+               p === 'P2' ? '#1976d2' : '#6e6e6e';
+      }
+
+      function renderTLDR(s) {
+        if (!s) return '';
+        const numCards = (s.key_numbers || []).map(n =>
+          '<div class="kpi">' +
+            '<div class="kpi-label">'+bi(n.label_zh, n.label_en)+'</div>' +
+            '<div class="kpi-value">'+esc(n.value)+'</div>' +
+            '<div class="kpi-delta">'+bi(n.delta_zh, n.delta_en)+'</div>' +
+          '</div>'
+        ).join('');
+        return '<div class="panel hero">' +
+          '<div class="hero-tag">'+bi('📰 今日总结', '📰 Today')+'</div>' +
+          '<div class="hero-headline">'+bi(s.headline_zh, s.headline_en)+'</div>' +
+          (numCards ? '<div class="kpi-grid">'+numCards+'</div>' : '') +
+          '<div class="hero-action">' +
+            '<span class="hero-action-label">' + bi('🎯 今天就做这一件事', '🎯 The one thing today') + '</span>' +
+            '<div class="hero-action-text">' + bi(s.one_thing_today_zh, s.one_thing_today_en) + '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      function renderROI(r) {
+        if (!r) return '';
+        return '<div class="panel"><h3>⭐ ' + bi('北极星指标 · ROI', 'North Star · ROI') + '</h3>' +
+          '<div class="roi-row">' +
+            '<div class="roi-big" style="color:'+trendColor(r.trend)+'">'+esc(r.current_value)+' '+trendIcon(r.trend)+'</div>' +
+            '<div class="roi-text">' +
+              '<div class="roi-label">' + bi('收入 ÷ 成本', 'Revenue ÷ cost') + '</div>' +
+              '<div class="roi-diag">' + bi(r.diagnosis_zh, r.diagnosis_en) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="roi-drag">' +
+            '<em>' + bi('🪨 最大拖累:', '🪨 Biggest drag:') + '</em> ' +
+            bi(r.biggest_drag_zh, r.biggest_drag_en) +
+          '</div>' +
+        '</div>';
+      }
+
+      function renderFunnel(f) {
+        if (!f || !f.stages) return '';
+        const max = Math.max(1, ...(f.stages.map(s => s.count || 0)));
+        const rows = f.stages.map((s, i) => {
+          const pct = i === 0 ? 100 : (s.conversion_pct || 0);
+          const widthPct = ((s.count || 0) / max) * 100;
+          const dropoff = i > 0 && pct < 50 ? '<span class="drop">↓ '+(100-pct)+'% '+bi('流失','drop')+'</span>' : '';
+          return '<div class="funnel-row">' +
+            '<div class="funnel-label">' + bi(s.name_zh, s.name_en) + '</div>' +
+            '<div class="funnel-bar"><div class="funnel-fill" style="width:'+widthPct+'%"></div></div>' +
+            '<div class="funnel-count">'+esc(s.count)+'</div>' +
+            '<div class="funnel-pct">'+ (i === 0 ? '—' : pct + '%') +'</div>' +
+            dropoff +
+          '</div>';
+        }).join('');
+        return '<div class="panel"><h3>📊 ' + bi('转化漏斗', 'Conversion funnel') + '</h3>' +
+          '<div class="funnel">'+rows+'</div>' +
+          '<div class="funnel-summary">' +
+            '<div><em>' + bi('🚨 最大流失:', '🚨 Biggest drop-off:') + '</em> ' + bi(f.biggest_drop_off_zh, f.biggest_drop_off_en) + '</div>' +
+            '<div><em>' + bi('🔧 怎么修:', '🔧 How to fix:') + '</em> ' + bi(f.fix_zh, f.fix_en) + '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      function renderPlaybook(plays) {
+        if (!plays || plays.length === 0) return '';
+        const items = plays.map((p, idx) =>
+          '<div class="play">' +
+            '<div class="play-header">' +
+              '<span class="play-num">' + (idx+1) + '</span>' +
+              '<strong>' + bi(p.tactic_zh, p.tactic_en) + '</strong>' +
+            '</div>' +
+            '<div class="play-why">' +
+              '<em>' + bi('为什么:', 'Why:') + '</em> ' + bi(p.why_zh, p.why_en) +
+            '</div>' +
+            '<div class="play-how">' +
+              '<em>' + bi('怎么做:', 'How:') + '</em>' +
+              '<ol>' +
+                (p.how_zh || []).map((step, i) =>
+                  '<li class="zh-only">' + esc(step) + '</li>' +
+                  '<li class="en-only">' + esc((p.how_en || [])[i] || '') + '</li>'
+                ).join('') +
+              '</ol>' +
+            '</div>' +
+            '<div class="play-expect">' +
+              '<em>' + bi('💡 预期结果:', '💡 Expected:') + '</em> ' + bi(p.expected_zh, p.expected_en) +
+            '</div>' +
+          '</div>'
+        ).join('');
+        return '<div class="panel"><h3>📘 ' + bi('提升续费 / 转化的剧本', 'Conversion / renewal playbook') + '</h3>' +
+          items + '</div>';
+      }
+
+      function renderRoadmap(items) {
+        if (!items || items.length === 0) return '';
+        const groups = { P0: [], P1: [], P2: [], P3: [] };
+        for (const it of items) (groups[it.priority] || groups.P3).push(it);
+        const renderGroup = (label_zh, label_en, p, list) => {
+          if (list.length === 0) return '';
+          const cardsHtml = list.map(it =>
+            '<div class="rm-card">' +
+              '<div class="rm-head">' +
+                '<span class="prio-tag" style="background:'+priorityColor(p)+'">'+p+'</span>' +
+                '<strong class="rm-title">' + bi(it.title_zh, it.title_en) + '</strong>' +
+                '<span class="rm-when">' + bi(it.timeline_zh, it.timeline_en) + '</span>' +
+              '</div>' +
+              '<div class="rm-row"><em>' + bi('📊 为什么:', '📊 Why:') + '</em> ' + bi(it.why_zh, it.why_en) + '</div>' +
+              '<div class="rm-row"><em>' + bi('🎯 是什么:', '🎯 What:') + '</em> ' + bi(it.what_zh, it.what_en) + '</div>' +
+              '<div class="rm-row"><em>' + bi('🛠 怎么做:', '🛠 How:') + '</em>' +
+                '<ol>' +
+                  (it.how_steps_zh || []).map((step, i) =>
+                    '<li class="zh-only">' + esc(step) + '</li>' +
+                    '<li class="en-only">' + esc((it.how_steps_en || [])[i] || '') + '</li>'
+                  ).join('') +
+                '</ol>' +
+              '</div>' +
+              '<div class="rm-row"><em>' + bi('📈 预期影响:', '📈 Expected impact:') + '</em> ' + bi(it.expected_impact_zh, it.expected_impact_en) + '</div>' +
+            '</div>'
+          ).join('');
+          return '<div class="rm-group">' +
+            '<h4 class="rm-group-title" style="color:'+priorityColor(p)+'">' + bi(label_zh, label_en) + '</h4>' +
+            cardsHtml +
+          '</div>';
+        };
+        return '<div class="panel"><h3>🗺 ' + bi('Feature 路线图', 'Feature roadmap') + '</h3>' +
+          renderGroup('🔥 P0 — 本周必做(阻塞 ROI)', '🔥 P0 — must ship this week (ROI-blocking)', 'P0', groups.P0) +
+          renderGroup('⚡ P1 — 本月做 (新 ROI 杠杆)',  '⚡ P1 — this month (new ROI lever)',         'P1', groups.P1) +
+          renderGroup('🧹 P2 — 本季度做 (产品卫生)',   '🧹 P2 — this quarter (hygiene)',             'P2', groups.P2) +
+          renderGroup('📋 P3 — Backlog',               '📋 P3 — Backlog',                            'P3', groups.P3) +
+        '</div>';
+      }
 
       function render(data) {
-        const healthColor = data.health.score >= 80 ? '#2e7d32'
-                          : data.health.score >= 60 ? '#ed6c02'
-                          : '#c62828';
-        const w = data.dataWindow || {};
-
-        const concerns = (data.concerns || []).map(c => {
-          const sev = severityIcon(c.severity);
-          return '<div class="ai-card" style="background:'+sev.bg+'">' +
-            '<div class="ai-card-row">' +
-              '<span class="ai-icon">'+sev.icon+'</span>' +
-              '<strong class="ai-title">'+bi(c.title_zh, c.title_en)+'</strong>' +
-            '</div>' +
-            '<div class="ai-detail">'+bi(c.details_zh, c.details_en)+'</div>' +
-          '</div>';
-        }).join('') || '<div class="empty">' + bi('无明显问题', 'No concerns') + '</div>';
-
-        const recs = (data.recommendations || []).map(r =>
-          '<div class="ai-card">' +
-            '<div class="ai-card-row">' +
-              '<span class="prio">#'+r.priority+'</span>' +
-              '<strong class="ai-title">'+bi(r.title_zh, r.title_en)+'</strong>' +
-              effortBadge(r.effort) +
-            '</div>' +
-            '<div class="ai-detail">' + bi(r.rationale_zh, r.rationale_en) + '</div>' +
-            '<div class="ai-meta">' +
-              '<span class="zh-only">📈 影响:</span><span class="en-only">📈 Impact:</span> ' +
-              bi(r.expectedImpact_zh, r.expectedImpact_en) +
-            '</div>' +
-          '</div>'
-        ).join('') || '<div class="empty">' + bi('暂无推荐', 'No recommendations') + '</div>';
-
-        const opts = (data.optimizations || []).map(o =>
-          '<div class="ai-card">' +
-            '<div class="ai-card-row">' +
-              '<span class="ai-icon">'+areaIcon(o.area)+'</span>' +
-              '<strong class="ai-title">'+bi(o.suggestion_zh, o.suggestion_en)+'</strong>' +
-            '</div>' +
-            '<div class="ai-meta"><em class="zh-only">收益:</em><em class="en-only">Gain:</em> ' +
-              bi(o.expectedGain_zh, o.expectedGain_en) +
-            '</div>' +
-          '</div>'
-        ).join('') || '<div class="empty">' + bi('暂无优化点', 'No optimizations') + '</div>';
-
-        const acts = (data.actions || []).map(a =>
-          '<div class="ai-card act">' +
-            '<div class="ai-card-row">' +
-              '<span class="ai-icon">'+categoryIcon(a.category)+'</span>' +
-              '<strong class="ai-title">'+bi(a.action_zh, a.action_en)+'</strong>' +
-            '</div>' +
-            '<div class="ai-meta"><em class="zh-only">依据:</em><em class="en-only">Why:</em> ' +
-              bi(a.evidence_zh, a.evidence_en) +
-            '</div>' +
-          '</div>'
-        ).join('') || '<div class="empty">' + bi('本周无行动', 'No actions this week') + '</div>';
-
-        const generated = (data.generatedAt || '').slice(0,16).replace('T',' ');
-
         root.innerHTML =
-          '<div class="panel health-card">' +
-            '<div class="health-row">' +
-              '<div class="health-score" style="color:'+healthColor+'">'+data.health.score+'</div>' +
-              '<div class="health-text">' +
-                '<div class="health-label">' + bi('健康度', 'Health') + '</div>' +
-                '<div class="health-summary">'+bi(data.health.summary_zh, data.health.summary_en)+'</div>' +
-              '</div>' +
-              '<div class="health-meta">' +
-                bi(generated + ' UTC', generated + ' UTC') + '<br>' +
-                bi(w.entCount + ' 用户 · ' + w.logCount + ' 调用 · ' + w.fbCount + ' 反馈',
-                   w.entCount + ' users · ' + w.logCount + ' calls · ' + w.fbCount + ' feedback') +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-
-          '<div class="row">' +
-            '<div class="panel"><h3>⚠️ ' + bi('关切', 'Concerns') + '</h3>' + concerns + '</div>' +
-            '<div class="panel"><h3>🚀 ' + bi('推荐 feature (按优先级)', 'Recommendations (by priority)') + '</h3>' + recs + '</div>' +
-          '</div>' +
-
-          '<div class="row">' +
-            '<div class="panel"><h3>⚡ ' + bi('优化机会', 'Optimizations') + '</h3>' + opts + '</div>' +
-            '<div class="panel"><h3>✅ ' + bi('本周行动项', 'Actions this week') + '</h3>' + acts + '</div>' +
-          '</div>';
-
+          renderTLDR(data.daily_summary) +
+          renderROI(data.north_star_roi) +
+          renderFunnel(data.funnel) +
+          renderPlaybook(data.conversion_playbook) +
+          renderRoadmap(data.feature_roadmap);
         loading.style.display = 'none';
         root.style.display = 'block';
       }
@@ -727,6 +763,59 @@ function shell(body: string, section: string, token: string): string {
   .health-label{font-size:11px;opacity:.55;text-transform:uppercase;letter-spacing:.6px}
   .health-summary{font-size:14px;color:var(--title);font-weight:500;margin-top:3px;line-height:1.5}
   .health-meta{font-size:11px;opacity:.6;text-align:right;line-height:1.6}
+  /* Hero TL;DR */
+  .hero{background:linear-gradient(135deg,#fffaf2,#fff3df)}
+  .hero-tag{font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.6;color:var(--title);margin-bottom:6px}
+  .hero-headline{font-size:18px;font-weight:600;color:var(--title);line-height:1.4;margin-bottom:14px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}
+  .kpi{background:rgba(255,255,255,.6);border-radius:10px;padding:10px 12px;text-align:center}
+  .kpi-label{font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.4px}
+  .kpi-value{font-size:22px;font-weight:700;color:var(--title);font-variant-numeric:tabular-nums;line-height:1.1;margin:3px 0}
+  .kpi-delta{font-size:11px;opacity:.7}
+  .hero-action{background:rgba(168,90,26,.12);border-radius:11px;padding:12px 14px;border-left:3px solid var(--link)}
+  .hero-action-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--link)}
+  .hero-action-text{font-size:14px;color:var(--title);font-weight:500;margin-top:4px;line-height:1.5}
+  /* ROI block */
+  .roi-row{display:flex;align-items:center;gap:18px;padding:8px 0}
+  .roi-big{font-size:36px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+  .roi-text{flex:1}
+  .roi-label{font-size:11px;opacity:.55;text-transform:uppercase;letter-spacing:.5px}
+  .roi-diag{font-size:13px;color:var(--title);margin-top:3px;line-height:1.5}
+  .roi-drag{margin-top:8px;font-size:12.5px;color:var(--body);background:rgba(0,0,0,.03);padding:8px 11px;border-radius:8px}
+  .roi-drag em{font-style:normal;font-weight:600;opacity:.7}
+  /* Funnel */
+  .funnel{margin:6px 0}
+  .funnel-row{display:grid;grid-template-columns:120px 1fr 50px 50px auto;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(74,47,24,.05)}
+  .funnel-label{font-size:13px;color:var(--title);font-weight:500}
+  .funnel-bar{height:18px;background:rgba(74,47,24,.06);border-radius:9px;overflow:hidden}
+  .funnel-fill{height:100%;background:linear-gradient(90deg,#e89556,var(--link));border-radius:9px}
+  .funnel-count{font-size:13px;font-weight:600;color:var(--title);font-variant-numeric:tabular-nums;text-align:right}
+  .funnel-pct{font-size:11px;opacity:.7;text-align:right;font-variant-numeric:tabular-nums}
+  .drop{font-size:10px;background:#ffe5e5;color:#c62828;padding:2px 7px;border-radius:9px;font-weight:600}
+  .funnel-summary{display:flex;flex-direction:column;gap:6px;margin-top:12px;font-size:12.5px;color:var(--body)}
+  .funnel-summary em{font-style:normal;font-weight:600;opacity:.7}
+  /* Playbook */
+  .play{background:rgba(168,90,26,.04);border-left:3px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:10px}
+  .play-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .play-num{background:var(--accent);color:white;width:24px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+  .play-header strong{font-size:14.5px;color:var(--title)}
+  .play-why,.play-expect{font-size:12.5px;color:var(--body);margin:6px 0;line-height:1.5}
+  .play-why em,.play-expect em,.play-how em{font-style:normal;font-weight:600;opacity:.7;margin-right:4px}
+  .play-how{font-size:12.5px;color:var(--body);margin:6px 0}
+  .play-how ol{margin:6px 0 0 0;padding-left:24px;line-height:1.6}
+  .play-how li{margin:2px 0}
+  /* Roadmap */
+  .rm-group{margin-bottom:18px}
+  .rm-group-title{font-size:13px;font-weight:700;margin:0 0 10px;text-transform:uppercase;letter-spacing:.5px}
+  .rm-card{background:rgba(0,0,0,.02);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .rm-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .prio-tag{color:white;font-size:11px;font-weight:700;padding:3px 8px;border-radius:8px}
+  .rm-title{flex:1;font-size:14px;color:var(--title)}
+  .rm-when{font-size:11px;opacity:.6;background:rgba(0,0,0,.05);padding:2px 8px;border-radius:8px}
+  .rm-row{font-size:12.5px;color:var(--body);margin:5px 0;line-height:1.5}
+  .rm-row em{font-style:normal;font-weight:600;opacity:.7;margin-right:4px}
+  .rm-row ol{margin:4px 0 0 0;padding-left:24px;line-height:1.55}
+  .rm-row li{margin:1px 0}
 </style>
 </head>
 <body>

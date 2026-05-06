@@ -26,7 +26,7 @@
 import type { Env } from '../index';
 import { callAnthropicMessages } from '../lib/anthropic';
 
-const INSIGHTS_CACHE_KEY  = 'insights:cache:v2';   // bump on schema change
+const INSIGHTS_CACHE_KEY  = 'insights:cache:v3';   // bump on schema change
 const INSIGHTS_CACHE_TTL  = 60 * 60;   // 1h
 const INSIGHTS_LIST_LIMIT = 1000;
 const ANALYST_MODEL       = 'claude-sonnet-4-6';
@@ -53,33 +53,51 @@ interface EntRow {
 export interface Insights {
   generatedAt: string;
   dataWindow: { fbCount: number; logCount: number; entCount: number; months: number };
-  // Bilingual fields — every text key is duplicated as _zh + _en. Renderer
-  // hides the inactive language via a CSS class on the <body>; toggling
-  // the active language is a CSS class flip, no re-render.
-  health: { score: number; summary_zh: string; summary_en: string };
-  concerns: Array<{
-    severity: 'high'|'medium'|'low';
+  /** TL;DR hero. The one screen the founder reads on phone between meetings. */
+  daily_summary: {
+    headline_zh: string; headline_en: string;     // ≤ 1 sentence
+    key_numbers: Array<{
+      label_zh: string; label_en: string;
+      value: string;                              // "12", "$0.42", "67%"
+      delta_zh: string; delta_en: string;        // "+3 vs 昨天" / "+3 vs yesterday"
+    }>;
+    one_thing_today_zh: string; one_thing_today_en: string;  // single most important action
+  };
+  /** North star: ROI = revenue / Anthropic cost. */
+  north_star_roi: {
+    current_value: string;                        // "3.2:1" or "—"
+    trend: 'up'|'down'|'flat';
+    diagnosis_zh: string; diagnosis_en: string;
+    biggest_drag_zh: string; biggest_drag_en: string;
+  };
+  /** Step-by-step funnel. Counts at each stage + drop-off diagnosis. */
+  funnel: {
+    stages: Array<{
+      name_zh: string; name_en: string;
+      count: number;
+      conversion_pct: number;                      // % of previous stage
+    }>;
+    biggest_drop_off_zh: string; biggest_drop_off_en: string;
+    fix_zh: string; fix_en: string;                // one-sentence fix proposal
+  };
+  /** Plays to run THIS WEEK to lift conversion / renewal. Step-by-step. */
+  conversion_playbook: Array<{
+    tactic_zh: string; tactic_en: string;
+    why_zh: string; why_en: string;
+    how_zh: string[]; how_en: string[];           // 3-5 numbered steps
+    expected_zh: string; expected_en: string;     // what you'll see
+  }>;
+  /** Feature backlog ranked P0/P1/P2/P3. Each item readable by non-PM. */
+  feature_roadmap: Array<{
+    priority: 'P0'|'P1'|'P2'|'P3';
     title_zh: string; title_en: string;
-    details_zh: string; details_en: string;
+    why_zh: string; why_en: string;
+    what_zh: string; what_en: string;
+    how_steps_zh: string[]; how_steps_en: string[];   // 3-6 plain-English steps
+    timeline_zh: string; timeline_en: string;
+    expected_impact_zh: string; expected_impact_en: string;
   }>;
-  recommendations: Array<{
-    priority: number;
-    title_zh: string; title_en: string;
-    rationale_zh: string; rationale_en: string;
-    expectedImpact_zh: string; expectedImpact_en: string;
-    effort: 'small'|'medium'|'large';
-  }>;
-  optimizations: Array<{
-    area: 'cost'|'latency'|'quality'|'retention'|'conversion'|'other';
-    suggestion_zh: string; suggestion_en: string;
-    expectedGain_zh: string; expectedGain_en: string;
-  }>;
-  actions: Array<{
-    category: 'fix'|'build'|'investigate'|'experiment';
-    action_zh: string; action_en: string;
-    evidence_zh: string; evidence_en: string;
-  }>;
-  rawDigest?: Record<string, unknown>;  // optional, for debugging
+  rawDigest?: Record<string, unknown>;
 }
 
 // ===========================================================================
@@ -335,67 +353,109 @@ async function aggregateForAnalysis(env: Env): Promise<DataDigest> {
 // ===========================================================================
 
 const ANALYST_SYSTEM_PROMPT = `
-You are KittyScan's senior product analyst. Read the telemetry digest and
-return ONE JSON object — nothing else, no markdown fences, no prose around it.
+You are KittyScan's growth-side product analyst, embedded with a solo
+founder who is NOT a product manager. Your job is to translate raw
+telemetry into a daily action plan a non-product person can execute.
 
-CRITICAL: Be BRUTALLY concise. The reader is the founder, glancing on a
-phone between meetings. Long paragraphs get ignored.
+NORTH STAR: ROI = monthly revenue / Anthropic cost. Every recommendation
+must point at this number.
 
-Per-field length limits (HARD):
-- title_*: max 8 words / 12 字
-- summary_*: max 25 words / 35 字
-- details_*: max 25 words / 35 字 — ONE sentence, with the data point
-- rationale_*: max 20 words / 25 字
-- expectedImpact_* / expectedGain_*: max 15 words / 20 字
-- action_*: max 15 words / 20 字
-- evidence_*: max 20 words / 25 字
+OUTPUT: ONE JSON object — no markdown fences, no prose around it.
+Every text field has BOTH _zh and _en. Each natural in its language.
 
-Every text field MUST have BOTH _zh (Chinese) and _en (English) versions.
-The two should convey the same information, not just translate verbatim —
-each in its language's natural voice.
+WRITING STYLE — read like a recipe, not a strategy memo:
+- "Open settings page" beats "review configuration"
+- "Add a note saying X" beats "consider X-related messaging"
+- 短句, 每句 ≤ 25 字. No 行业 jargon.
+- For "how" steps: imperative verbs, numbered, what-to-click level detail.
 
-Operating principles:
-- Cross-reference axes. A 👎 that clusters by app version is sharper than raw count.
-- Skip restating the table. Surface the second-derivative.
-- Justify with a specific data point.
-- Don't pitch features that break privacy-first positioning.
+LENGTH CAPS (hard):
+- headline / title / tactic / action / step:  ≤ 12 words / 18 字
+- why / details / diagnosis / expected:        ≤ 30 words / 40 字
+- how_steps / how_steps_zh items:              ≤ 20 words / 30 字 each, 3-6 steps
 
-Output JSON shape:
+OUTPUT SCHEMA:
 {
-  "health": { "score": <0-100 int>, "summary_zh": "…", "summary_en": "…" },
-  "concerns": [{
-    "severity":"high"|"medium"|"low",
-    "title_zh":"…","title_en":"…",
-    "details_zh":"…","details_en":"…"
-  }],
-  "recommendations": [{
-    "priority": <1=highest>,
-    "title_zh":"…","title_en":"…",
-    "rationale_zh":"…","rationale_en":"…",
-    "expectedImpact_zh":"…","expectedImpact_en":"…",
-    "effort":"small"|"medium"|"large"
-  }],
-  "optimizations": [{
-    "area":"cost"|"latency"|"quality"|"retention"|"conversion"|"other",
-    "suggestion_zh":"…","suggestion_en":"…",
-    "expectedGain_zh":"…","expectedGain_en":"…"
-  }],
-  "actions": [{
-    "category":"fix"|"build"|"investigate"|"experiment",
-    "action_zh":"…","action_en":"…",
-    "evidence_zh":"…","evidence_en":"…"
-  }]
+  "daily_summary": {
+    "headline_zh": "…", "headline_en": "…",
+    "key_numbers": [
+      { "label_zh":"…","label_en":"…","value":"…","delta_zh":"…","delta_en":"…" }
+    ],
+    "one_thing_today_zh": "…", "one_thing_today_en": "…"
+  },
+  "north_star_roi": {
+    "current_value": "<X.X:1 or — if no revenue>",
+    "trend": "up"|"down"|"flat",
+    "diagnosis_zh":"…","diagnosis_en":"…",
+    "biggest_drag_zh":"…","biggest_drag_en":"…"
+  },
+  "funnel": {
+    "stages": [
+      { "name_zh":"…","name_en":"…","count":<int>,"conversion_pct":<int 0-100> }
+    ],
+    "biggest_drop_off_zh":"…","biggest_drop_off_en":"…",
+    "fix_zh":"…","fix_en":"…"
+  },
+  "conversion_playbook": [
+    {
+      "tactic_zh":"…","tactic_en":"…",
+      "why_zh":"…","why_en":"…",
+      "how_zh":["1. 打开设置页","2. 加一句…","3. 测一下"],
+      "how_en":["1. Open settings","2. Add line that…","3. Test it"],
+      "expected_zh":"…","expected_en":"…"
+    }
+  ],
+  "feature_roadmap": [
+    {
+      "priority":"P0"|"P1"|"P2"|"P3",
+      "title_zh":"…","title_en":"…",
+      "why_zh":"…","why_en":"…",
+      "what_zh":"…","what_en":"…",
+      "how_steps_zh":["1. ……","2. ……","3. ……"],
+      "how_steps_en":["1. …","2. …","3. …"],
+      "timeline_zh":"本周|本月|本季|backlog",
+      "timeline_en":"this week|this month|this quarter|backlog",
+      "expected_impact_zh":"…","expected_impact_en":"…"
+    }
+  ]
 }
 
-Rules: 3-5 items per array (more than 5 = noise). Priority 1,2,3,…
-Health 90+ only if zero high-severity concerns. Always emit the JSON
-even if data is sparse — empty arrays OK.
+PRIORITY DEFINITIONS (use these exactly):
+- P0: blocks ROI right now. Ship this week. No exceptions.
+- P1: unlocks a new ROI lever (more conversions, higher LTV, lower CAC). Ship this month.
+- P2: hygiene / quality-of-life. Ship this quarter when no P0/P1 in flight.
+- P3: backlog / 'maybe never'.
+
+FUNNEL STAGES (use these labels exactly, in this order):
+1. App 安装 / Install
+2. 首次打开 / First open
+3. 完成首次分析 / First analysis complete
+4. 购买 Pack / Pack purchase
+5. 升级 Pro / Upgrade to Pro
+6. Pro 续费 / Pro renewal
+Compute each count and the % conversion from the previous stage.
+
+ARRAY SIZES:
+- daily_summary.key_numbers: 4-6 items
+- conversion_playbook: 3-5 items, ranked by ROI lift potential
+- feature_roadmap: 3-7 items total, with at least one P0 if there is ANY
+  P0-worthy issue (blocking ROI). If truly no P0, say so explicitly in
+  the one_thing_today field.
+
+ROI CALCULATION HINTS:
+- Revenue: Pro ($6.99/mo each), 30-pack ($6.99 one-time), 10-pack ($2.99 one-time).
+  Use entitlement counts to estimate.
+- Cost: cost.mtd is monthly Anthropic spend in USD.
+- If revenue is zero, current_value = "—" and explain in diagnosis why.
+
+Always emit the JSON even if data is sparse — empty arrays OK, but you
+should still emit at least one P0 if anything is blocking ROI.
 `.trim();
 
 async function runAnalyst(
   digest: DataDigest,
   apiKey: string,
-): Promise<Pick<Insights, 'health'|'concerns'|'recommendations'|'optimizations'|'actions'>> {
+): Promise<Pick<Insights, 'daily_summary'|'north_star_roi'|'funnel'|'conversion_playbook'|'feature_roadmap'>> {
   // Compact the digest — pass system at the top level (Anthropic's
   // preferred slot) and only the data payload as the user turn so the
   // model parses the role/format instructions cleanly.
@@ -409,7 +469,7 @@ async function runAnalyst(
       messages: [
         { role: 'user', content: [{ type: 'text', text: userMsg }] },
       ],
-      max_tokens: 4000,
+      max_tokens: 6000,
     },
     apiKey,
     ANALYST_MODEL,
@@ -426,13 +486,24 @@ async function runAnalyst(
     return fallback('parse_failed', `no JSON found · preview: ${text.slice(0, 200)}`);
   }
   try {
-    const parsed = JSON.parse(cleaned) as Pick<Insights, 'health'|'concerns'|'recommendations'|'optimizations'|'actions'>;
+    const parsed = JSON.parse(cleaned) as Partial<Insights>;
     return {
-      health: parsed.health ?? { score: 0, summary_zh: '解析失败', summary_en: 'unparseable' },
-      concerns:        Array.isArray(parsed.concerns)        ? parsed.concerns        : [],
-      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
-      optimizations:   Array.isArray(parsed.optimizations)   ? parsed.optimizations   : [],
-      actions:         Array.isArray(parsed.actions)         ? parsed.actions         : [],
+      daily_summary: parsed.daily_summary ?? {
+        headline_zh: '暂无数据', headline_en: 'No data yet',
+        key_numbers: [],
+        one_thing_today_zh: '—', one_thing_today_en: '—',
+      },
+      north_star_roi: parsed.north_star_roi ?? {
+        current_value: '—', trend: 'flat',
+        diagnosis_zh: '暂无数据', diagnosis_en: 'no data',
+        biggest_drag_zh: '—', biggest_drag_en: '—',
+      },
+      funnel: parsed.funnel ?? {
+        stages: [], biggest_drop_off_zh: '—', biggest_drop_off_en: '—',
+        fix_zh: '—', fix_en: '—',
+      },
+      conversion_playbook: Array.isArray(parsed.conversion_playbook) ? parsed.conversion_playbook : [],
+      feature_roadmap:    Array.isArray(parsed.feature_roadmap)    ? parsed.feature_roadmap    : [],
     };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
@@ -444,19 +515,23 @@ async function runAnalyst(
   }
 }
 
-function fallback(kind: string, detail: string): Pick<Insights, 'health'|'concerns'|'recommendations'|'optimizations'|'actions'> {
+function fallback(kind: string, detail: string): Pick<Insights, 'daily_summary'|'north_star_roi'|'funnel'|'conversion_playbook'|'feature_roadmap'> {
   return {
-    health: {
-      score: 0,
-      summary_zh: `分析器无法响应 (${kind})。仅显示原始数据。`,
-      summary_en: `Analyst unavailable (${kind}). Showing raw digest only.`,
+    daily_summary: {
+      headline_zh: `分析器暂时不可用 (${kind})`,
+      headline_en: `Analyst unavailable (${kind})`,
+      key_numbers: [],
+      one_thing_today_zh: '检查 Worker 日志',
+      one_thing_today_en: 'Check Worker logs',
     },
-    concerns: [{
-      severity: 'low',
-      title_zh: '分析调用失败', title_en: 'Analyst call failed',
-      details_zh: detail, details_en: detail,
-    }],
-    recommendations: [], optimizations: [], actions: [],
+    north_star_roi: {
+      current_value: '—', trend: 'flat',
+      diagnosis_zh: detail, diagnosis_en: detail,
+      biggest_drag_zh: '—', biggest_drag_en: '—',
+    },
+    funnel: { stages: [], biggest_drop_off_zh: '—', biggest_drop_off_en: '—', fix_zh: '—', fix_en: '—' },
+    conversion_playbook: [],
+    feature_roadmap: [],
   };
 }
 
