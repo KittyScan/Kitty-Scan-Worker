@@ -130,22 +130,38 @@ async function renderOverview(env: Env, limit: number): Promise<string> {
     .map((r) => r.durationMs ?? 0)
     .filter((n) => n > 0);
 
+  // Group KPIs by category so the eye can scan them: who / money /
+  // performance / voice. Bilingual labels on every stat.
+  const bugCount = fbRows.filter((r) => r.category === 'bug').length;
   return `
+    <h3 class="section-title">👥 ${bi('用户', 'Users')}</h3>
     <div class="stats">
-      ${stat(entRows.length, 'total accounts')}
-      ${stat(tierCounts.sub ?? 0, 'Pro subscribers')}
-      ${stat(tierCounts.pack ?? 0, 'pack users')}
-      ${stat(tierCounts.free ?? 0, 'free users')}
-      ${stat(`$${costMtd.toFixed(2)}`, `cost MTD (${monthKey})`)}
-      ${stat(total, 'analyses (30d log)')}
-      ${stat(okRate, 'success rate')}
-      ${stat(csat, 'CSAT (👍 / total)')}
-      ${stat(`${percentile(latencies, 50)}ms`, 'latency P50')}
-      ${stat(`${percentile(latencies, 95)}ms`, 'latency P95')}
-      ${stat(ratings.length, 'ratings collected')}
-      ${stat(fbRows.filter((r) => r.category === 'bug').length, 'bug reports')}
+      ${biStat(entRows.length,           '总账号',     'total accounts')}
+      ${biStat(tierCounts.sub ?? 0,      'Pro 订阅',   'Pro subscribers')}
+      ${biStat(tierCounts.pack ?? 0,     'Pack 用户',  'pack users')}
+      ${biStat(tierCounts.free ?? 0,     '免费用户',   'free users')}
     </div>
-    <div class="hint">Numbers above reflect everything currently in KV. Activity / cost windows are bounded by the 30-day log retention and monthly cost buckets.</div>
+    <h3 class="section-title">💰 ${bi('收入与成本', 'Revenue & cost')}</h3>
+    <div class="stats">
+      ${biStat(`$${costMtd.toFixed(2)}`, `本月成本 (${monthKey})`, `cost MTD (${monthKey})`)}
+      ${biStat(total,                    '30 天调用数', 'analyses (30d log)')}
+    </div>
+    <h3 class="section-title">⚡ ${bi('性能', 'Performance')}</h3>
+    <div class="stats">
+      ${biStat(okRate,                              '成功率',    'success rate')}
+      ${biStat(`${percentile(latencies, 50)}ms`,    'P50 延迟',  'P50 latency')}
+      ${biStat(`${percentile(latencies, 95)}ms`,    'P95 延迟',  'P95 latency')}
+    </div>
+    <h3 class="section-title">💬 ${bi('用户声音', 'User voice')}</h3>
+    <div class="stats">
+      ${biStat(csat,            'CSAT (👍/总)',     'CSAT (👍 / total)')}
+      ${biStat(ratings.length,  '评分总数',         'ratings collected')}
+      ${biStat(bugCount,        '反馈 / Bug 数',    'bug reports')}
+    </div>
+    <div class="hint">${bi(
+      '所有数字基于 Cloudflare KV 实时数据 · 调用数据 30 天滚动 · 切换上方 tab 查看深度数据',
+      'Live from Cloudflare KV · 30-day rolling activity window · use tabs above for detail',
+    )}</div>
   `;
 }
 
@@ -209,27 +225,28 @@ async function renderFeedback(env: Env, url: URL, token: string, limit: number):
     .join('');
 
   return `
+    <h3 class="section-title">💬 ${bi('用户声音', 'User voice')}</h3>
     <div class="stats">
-      ${stat(rows.length, 'total feedback')}
-      ${stat(ratingRows.length, 'ratings')}
-      ${stat(up, '👍 helpful')}
-      ${stat(down, '👎 off')}
+      ${biStat(rows.length,        '总反馈',   'total feedback')}
+      ${biStat(ratingRows.length,  '评分总数', 'ratings')}
+      ${biStat(up,                 '👍 有用',  '👍 helpful')}
+      ${biStat(down,               '👎 不准',  '👎 off')}
     </div>
     <div class="row">
-      <div class="panel"><h3>👎 reasons</h3>
-        <table><thead><tr><th>Reason</th><th>Count</th></tr></thead>
-        <tbody>${reasonRows || '<tr><td colspan="2" style="opacity:.5">no 👎 yet</td></tr>'}</tbody></table>
+      <div class="panel"><h3>👎 ${bi('差评原因', 'Reasons')}</h3>
+        <table><thead><tr><th>${bi('原因', 'Reason')}</th><th class="num">${bi('数', 'Count')}</th></tr></thead>
+        <tbody>${reasonRows || `<tr><td colspan="2" style="opacity:.5">${bi('暂无 👎', 'no 👎 yet')}</td></tr>`}</tbody></table>
       </div>
-      <div class="panel"><h3>By category</h3>
-        <table><thead><tr><th>Category</th><th>Count</th></tr></thead>
-        <tbody>${Object.entries(categoryCounts).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('') || '<tr><td colspan="2" style="opacity:.5">no data</td></tr>'}</tbody></table>
+      <div class="panel"><h3>${bi('按类别', 'By category')}</h3>
+        <table><thead><tr><th>${bi('类别', 'Category')}</th><th class="num">${bi('数', 'Count')}</th></tr></thead>
+        <tbody>${Object.entries(categoryCounts).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`).join('') || `<tr><td colspan="2" style="opacity:.5">${bi('暂无数据', 'no data')}</td></tr>`}</tbody></table>
       </div>
     </div>
     <div class="filters">${filters}</div>
     <div class="panel">
       <table>
-        <thead><tr><th>When (UTC)</th><th>Category</th><th>Text</th><th>Client</th><th>Token</th></tr></thead>
-        <tbody>${tableRows || '<tr><td colspan="5" style="opacity:.5;padding:20px;text-align:center">No feedback yet</td></tr>'}</tbody>
+        <thead><tr><th>${bi('时间 UTC', 'When (UTC)')}</th><th>${bi('类别', 'Category')}</th><th>${bi('内容', 'Text')}</th><th>${bi('客户端', 'Client')}</th><th>${bi('Token', 'Token')}</th></tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="5" style="opacity:.5;padding:20px;text-align:center">${bi('暂无反馈', 'No feedback yet')}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -240,16 +257,40 @@ async function renderUsers(env: Env, limit: number): Promise<string> {
   const tierCounts: Record<string, number> = { free: 0, pack: 0, sub: 0 };
   for (const { value } of rows) tierCounts[value.tier] = (tierCounts[value.tier] ?? 0) + 1;
 
-  const subWindow = rows
+  const total = rows.length || 1;
+  // Funnel: free → pack → sub. Each row's bar width is its share of total.
+  const funnelRow = (zh: string, en: string, count: number, color: string) => {
+    const pct = (count / total) * 100;
+    return `<div class="funnel-row">
+      <div class="funnel-label">${bi(zh, en)}</div>
+      <div class="funnel-bar"><div class="funnel-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="funnel-count">${count}</div>
+      <div class="funnel-pct">${total === 0 ? '—' : Math.round(pct) + '%'}</div>
+      <div></div>
+    </div>`;
+  };
+
+  const subRows = rows
     .filter(({ value }) => value.tier === 'sub')
     .map(({ key, value }) => ({
       token: key.replace(/^ent:/, '').slice(0, 8),
-      until: value.subActiveUntil ? new Date(value.subActiveUntil).toISOString().slice(0, 16) : '?',
+      until: value.subActiveUntil ? new Date(value.subActiveUntil).toISOString().slice(0, 10) : '?',
       analyzeUsed: value.subAnalyzeUsed ?? 0,
       chatUsed: value.subChatUsed ?? 0,
+      analyzePct: ((value.subAnalyzeUsed ?? 0) / 50) * 100,
     }))
-    .sort((a, b) => a.until.localeCompare(b.until))
-    .map((s) => `<tr><td class="token">${esc(s.token)}</td><td class="when">${esc(s.until)}</td><td>${s.analyzeUsed} / 50</td><td>${s.chatUsed} / 30</td></tr>`)
+    .sort((a, b) => b.analyzePct - a.analyzePct)
+    .map((s) => {
+      const color = s.analyzePct >= 80 ? '#c62828' : s.analyzePct >= 50 ? '#ed6c02' : '#2e7d32';
+      const risk = s.analyzePct >= 80 ? `<span class="risk-tag">⚠️ ${bi('快用完', 'near limit')}</span>` : '';
+      return `<tr>
+        <td class="token">${esc(s.token)}</td>
+        <td class="when">${esc(s.until)}</td>
+        <td><strong style="color:${color}">${s.analyzeUsed}</strong> / 50</td>
+        <td>${s.chatUsed} / 30</td>
+        <td>${risk}</td>
+      </tr>`;
+    })
     .join('');
 
   const packs = rows
@@ -259,24 +300,47 @@ async function renderUsers(env: Env, limit: number): Promise<string> {
       bal: value.packBalance ?? 0,
     }))
     .sort((a, b) => b.bal - a.bal)
-    .map((p) => `<tr><td class="token">${esc(p.token)}</td><td>${p.bal}</td></tr>`)
+    .map((p) => {
+      const color = p.bal === 0 ? '#c62828' : p.bal <= 5 ? '#ed6c02' : '#2e7d32';
+      return `<tr>
+        <td class="token">${esc(p.token)}</td>
+        <td><strong style="color:${color}">${p.bal}</strong> ${bi('次', 'left')}</td>
+      </tr>`;
+    })
     .join('');
 
   return `
-    <div class="stats">
-      ${stat(rows.length, 'total accounts')}
-      ${stat(tierCounts.sub ?? 0, 'Pro')}
-      ${stat(tierCounts.pack ?? 0, 'Pack')}
-      ${stat(tierCounts.free ?? 0, 'Free')}
-    </div>
-    <div class="row">
-      <div class="panel"><h3>Pro subscribers (period end + usage)</h3>
-        <table><thead><tr><th>Token</th><th>Until (UTC)</th><th>Analyze</th><th>Chat</th></tr></thead>
-        <tbody>${subWindow || '<tr><td colspan="4" style="opacity:.5">no Pro yet</td></tr>'}</tbody></table>
+    <h3 class="section-title">📊 ${bi('用户分布', 'Distribution')}</h3>
+    <div class="panel">
+      <div class="funnel">
+        ${funnelRow('🆓 免费', '🆓 Free', tierCounts.free ?? 0, '#9e9e9e')}
+        ${funnelRow('📦 Pack', '📦 Pack', tierCounts.pack ?? 0, '#e89556')}
+        ${funnelRow('👑 Pro 订阅', '👑 Pro', tierCounts.sub ?? 0, 'var(--link)')}
       </div>
-      <div class="panel"><h3>Pack balances</h3>
-        <table><thead><tr><th>Token</th><th>Credits</th></tr></thead>
-        <tbody>${packs || '<tr><td colspan="2" style="opacity:.5">no pack users</td></tr>'}</tbody></table>
+      <div class="hint" style="margin-top:10px">${bi(
+        `共 ${rows.length} 个账号 · 付费率 ${total === 0 ? '—' : Math.round(((tierCounts.pack ?? 0) + (tierCounts.sub ?? 0)) / total * 100) + '%'}`,
+        `${rows.length} accounts total · pay rate ${total === 0 ? '—' : Math.round(((tierCounts.pack ?? 0) + (tierCounts.sub ?? 0)) / total * 100) + '%'}`,
+      )}</div>
+    </div>
+
+    <div class="row">
+      <div class="panel"><h3>👑 ${bi('Pro 订阅用户 (按本月使用量排序)', 'Pro subscribers (sorted by month usage)')}</h3>
+        <table>
+          <thead><tr>
+            <th>${bi('Token', 'Token')}</th>
+            <th>${bi('到期', 'Until')}</th>
+            <th>${bi('本月分析', 'Analyses')}</th>
+            <th>${bi('本月 Chat', 'Chats')}</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${subRows || `<tr><td colspan="5" style="opacity:.5">${bi('还没有 Pro 用户', 'no Pro users yet')}</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="panel"><h3>📦 ${bi('Pack 余额', 'Pack balances')}</h3>
+        <table>
+          <thead><tr><th>${bi('Token', 'Token')}</th><th>${bi('剩余', 'Balance')}</th></tr></thead>
+          <tbody>${packs || `<tr><td colspan="2" style="opacity:.5">${bi('还没有 pack 用户', 'no pack users')}</td></tr>`}</tbody>
+        </table>
       </div>
     </div>
   `;
@@ -300,68 +364,118 @@ async function renderActivity(env: Env, limit: number): Promise<string> {
     return out;
   };
 
-  const tableRow = (label: string, count: number) =>
-    `<tr><td>${esc(label)}</td><td>${count}</td><td>${total === 0 ? '—' : `${Math.round((count/total)*100)}%`}</td></tr>`;
+  const tableRow = (label: string, count: number) => {
+    const pct = total === 0 ? 0 : (count/total) * 100;
+    return `<tr>
+      <td>${esc(label)}</td>
+      <td><div class="mini-bar"><div class="mini-bar-fill" style="width:${pct}%"></div></div></td>
+      <td class="num">${count}</td>
+      <td class="num">${total === 0 ? '—' : Math.round(pct)+'%'}</td>
+    </tr>`;
+  };
 
-  const sectionTable = (title: string, m: Record<string, number>) => `
-    <div class="panel"><h3>${title}</h3>
-      <table><thead><tr><th>Value</th><th>Count</th><th>Share</th></tr></thead>
-      <tbody>${Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>tableRow(k,v)).join('') || '<tr><td colspan="3" style="opacity:.5">no data</td></tr>'}</tbody></table>
+  const sectionTable = (titleZh: string, titleEn: string, m: Record<string, number>) => `
+    <div class="panel"><h3>${bi(titleZh, titleEn)}</h3>
+      <table><thead><tr><th>${bi('值', 'Value')}</th><th></th><th class="num">${bi('数', '#')}</th><th class="num">${bi('占比', 'Share')}</th></tr></thead>
+      <tbody>${Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>tableRow(k,v)).join('') || `<tr><td colspan="4" style="opacity:.5">${bi('暂无数据', 'no data')}</td></tr>`}</tbody></table>
     </div>`;
 
   const recentRows = rows
-    .slice(0, 50)   // already newest-first because of reverse-ts key
-    .map((r) => `<tr>
-      <td class="when">${esc((r.ts ?? '').replace('T',' ').slice(0,16))}</td>
-      <td>${esc(r.route ?? '')}</td>
-      <td>${esc(r.tier ?? '')}</td>
-      <td>${esc((r.model ?? '').replace(/^claude-/, ''))}</td>
-      <td>${r.durationMs ?? 0}ms</td>
-      <td>${(r.inputTokens ?? 0)}/${(r.outputTokens ?? 0)}</td>
-      <td>${esc(r.status ?? '')}</td>
-      <td class="token">${esc(r.tokenShort ?? '')}</td>
-      <td>${esc(r.country ?? '')}</td>
-    </tr>`)
+    .slice(0, 30)
+    .map((r) => {
+      const dur = r.durationMs ?? 0;
+      const durColor = dur > 5000 ? '#c62828' : dur > 2000 ? '#ed6c02' : '#2e7d32';
+      const statusOk = (r.status ?? '') === 'ok';
+      return `<tr>
+        <td class="when">${esc((r.ts ?? '').replace('T',' ').slice(5,16))}</td>
+        <td><span class="route-badge">${esc(r.route ?? '')}</span></td>
+        <td>${esc(r.tier ?? '')}</td>
+        <td class="model-cell">${esc((r.model ?? '').replace(/^claude-/, '').replace(/-\d{8}$/, ''))}</td>
+        <td class="num" style="color:${durColor};font-weight:600">${dur}ms</td>
+        <td class="num">${(r.inputTokens ?? 0)}/${(r.outputTokens ?? 0)}</td>
+        <td>${statusOk ? '✅' : '❌ ' + esc(r.status ?? '')}</td>
+        <td>${esc(r.country ?? '')}</td>
+      </tr>`;
+    })
     .join('');
 
   return `
+    <h3 class="section-title">📊 ${bi('30 天概览', '30-day overview')}</h3>
     <div class="stats">
-      ${stat(total, 'calls (30d)')}
-      ${stat(`${total === 0 ? '—' : Math.round((okCount/total)*100)+'%'}`, 'success rate')}
-      ${stat(`${percentile(latencies, 50)}ms`, 'P50 latency')}
-      ${stat(`${percentile(latencies, 95)}ms`, 'P95 latency')}
-      ${stat(totalIn.toLocaleString(), 'input tokens')}
-      ${stat(totalOut.toLocaleString(), 'output tokens')}
+      ${biStat(total,                                     '总调用',   'total calls')}
+      ${biStat(`${total === 0 ? '—' : Math.round((okCount/total)*100)+'%'}`, '成功率', 'success rate')}
+      ${biStat(`${percentile(latencies, 50)}ms`,          'P50 延迟', 'P50 latency')}
+      ${biStat(`${percentile(latencies, 95)}ms`,          'P95 延迟', 'P95 latency')}
+      ${biStat(totalIn.toLocaleString(),                  '输入 token', 'input tokens')}
+      ${biStat(totalOut.toLocaleString(),                 '输出 token', 'output tokens')}
     </div>
     <div class="row">
-      ${sectionTable('By route',   split('route'))}
-      ${sectionTable('By model',   split('model'))}
+      ${sectionTable('按路径', 'By route',   split('route'))}
+      ${sectionTable('按模型', 'By model',   split('model'))}
     </div>
     <div class="row">
-      ${sectionTable('By tier',    split('tier'))}
-      ${sectionTable('By country', split('country'))}
+      ${sectionTable('按用户层级', 'By tier',    split('tier'))}
+      ${sectionTable('按国家', 'By country', split('country'))}
     </div>
     <div class="panel">
-      <h3>Recent calls (50 latest)</h3>
+      <h3>${bi('最近 30 次调用', '30 most recent calls')}</h3>
       <table>
-        <thead><tr><th>When</th><th>Route</th><th>Tier</th><th>Model</th><th>Duration</th><th>In/Out</th><th>Status</th><th>Token</th><th>Country</th></tr></thead>
-        <tbody>${recentRows || '<tr><td colspan="9" style="opacity:.5;padding:20px;text-align:center">No calls logged yet</td></tr>'}</tbody>
+        <thead><tr><th>${bi('时间', 'When')}</th><th>${bi('路径', 'Route')}</th><th>${bi('层级', 'Tier')}</th><th>${bi('模型', 'Model')}</th><th class="num">${bi('耗时', 'Time')}</th><th class="num">In/Out</th><th>${bi('状态', 'Status')}</th><th>${bi('国家', 'Country')}</th></tr></thead>
+        <tbody>${recentRows || `<tr><td colspan="8" style="opacity:.5;padding:20px;text-align:center">${bi('暂无调用记录', 'No calls logged yet')}</td></tr>`}</tbody>
       </table>
     </div>
   `;
 }
 
 async function renderCosts(env: Env): Promise<string> {
-  const map = await listCostMap(env);
-  const sorted = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  const [costMap, logs, ents] = await Promise.all([
+    listCostMap(env),
+    listAndParse<LogRow>(env, 'log:', 1000),
+    listAndParse<EntRow>(env, 'ent:', 1000),
+  ]);
+
+  const sorted = Object.entries(costMap).sort((a, b) => b[0].localeCompare(a[0]));
   const total = sorted.reduce((s, [, v]) => s + v, 0);
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const mtd = costMap[monthKey] ?? 0;
 
-  const rows = sorted
-    .map(([month, cost]) => `<tr><td class="when">${esc(month)}</td><td>$${cost.toFixed(4)}</td></tr>`)
-    .join('');
+  // Cost-per-user calc using count of paid accounts. Indicative only —
+  // we don't track per-call attribution to a specific user yet.
+  const paidUsers = ents.filter((e) => e.tier === 'pack' || e.tier === 'sub').length;
+  const costPerPaidUser = paidUsers === 0 ? 0 : mtd / paidUsers;
 
-  // Bar-chart with inline divs — no chart lib needed.
-  const max = sorted.length === 0 ? 1 : Math.max(...sorted.map(([,v]) => v));
+  // Estimate forecast: linear projection from current MTD to end-of-month.
+  const now = new Date();
+  const dom = now.getUTCDate();
+  const totalDaysInMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
+  const forecast = dom === 0 ? 0 : (mtd / dom) * totalDaysInMonth;
+
+  // Per-route + per-model split (approximate — log entries don't carry
+  // per-call cost; we count calls and assume tokens roughly proportional).
+  const splitCount = (field: keyof LogRow): Record<string, number> => {
+    const m: Record<string, number> = {};
+    for (const l of logs) {
+      const k = (l[field] as string | undefined) ?? '?';
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  };
+  const byRoute = splitCount('route');
+  const byModel = splitCount('model');
+  const totalCalls = logs.length || 1;
+
+  const breakdownRow = (label: string, count: number) => {
+    const share = (count / totalCalls) * 100;
+    const estCost = mtd * (count / totalCalls);
+    return `<tr>
+      <td>${esc(label)}</td>
+      <td><div class="mini-bar"><div class="mini-bar-fill" style="width:${share}%"></div></div></td>
+      <td class="num">${count}</td>
+      <td class="num">$${estCost.toFixed(3)}</td>
+    </tr>`;
+  };
+
+  const max = sorted.length === 0 ? 1 : Math.max(...sorted.map(([, v]) => v));
   const bars = sorted
     .map(([month, cost]) => `
       <div class="bar-row">
@@ -372,17 +486,34 @@ async function renderCosts(env: Env): Promise<string> {
     .join('');
 
   return `
+    <h3 class="section-title">💰 ${bi('成本概况', 'Cost overview')}</h3>
     <div class="stats">
-      ${stat(`$${total.toFixed(2)}`, 'total cost (all months)')}
-      ${stat(sorted.length, 'months tracked')}
+      ${biStat(`$${mtd.toFixed(2)}`,        `本月成本 (${monthKey})`, `MTD cost (${monthKey})`)}
+      ${biStat(`$${forecast.toFixed(2)}`,   '本月预测', 'forecast EOM')}
+      ${biStat(`$${total.toFixed(2)}`,      '累计成本', 'all-time cost')}
+      ${biStat(`$${costPerPaidUser.toFixed(3)}`, '每付费用户成本/月', 'cost / paid user / mo')}
     </div>
-    <div class="panel"><h3>Monthly cost</h3>
-      <div class="bars">${bars || '<div style="opacity:.5">No cost data yet</div>'}</div>
-      <table style="margin-top:14px">
-        <thead><tr><th>Month</th><th>USD</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="2" style="opacity:.5">No cost data yet</td></tr>'}</tbody>
-      </table>
+    <div class="panel"><h3>📊 ${bi('月度趋势', 'Monthly trend')}</h3>
+      <div class="bars">${bars || `<div style="opacity:.5">${bi('暂无成本数据', 'No cost data yet')}</div>`}</div>
     </div>
+    <div class="row">
+      <div class="panel"><h3>${bi('按路径估算', 'Estimated by route')}</h3>
+        <table>
+          <thead><tr><th>${bi('路径', 'Route')}</th><th></th><th class="num">${bi('调用', 'Calls')}</th><th class="num">${bi('估算成本', 'Est. cost')}</th></tr></thead>
+          <tbody>${Object.entries(byRoute).sort((a,b)=>b[1]-a[1]).map(([k,v])=>breakdownRow(k,v)).join('') || `<tr><td colspan="4" style="opacity:.5">${bi('暂无数据', 'no data')}</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="panel"><h3>${bi('按模型估算', 'Estimated by model')}</h3>
+        <table>
+          <thead><tr><th>${bi('模型', 'Model')}</th><th></th><th class="num">${bi('调用', 'Calls')}</th><th class="num">${bi('估算成本', 'Est. cost')}</th></tr></thead>
+          <tbody>${Object.entries(byModel).sort((a,b)=>b[1]-a[1]).map(([k,v])=>breakdownRow(k.replace(/^claude-/, '').replace(/-\d{8}$/, ''), v)).join('') || `<tr><td colspan="4" style="opacity:.5">${bi('暂无数据', 'no data')}</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="hint">${bi(
+      '⚠️ 路径/模型成本是按调用次数比例估算 — 不是真实 token 成本归因。每次调用的真实 token 用量在 Activity tab。',
+      '⚠️ Route/model breakdowns are call-share estimates, not exact token attribution. See Activity tab for per-call token usage.',
+    )}</div>
   `;
 }
 
@@ -659,6 +790,18 @@ function stat(value: string | number, label: string): string {
   return `<div class="stat"><div class="n">${esc(String(value))}</div><div class="l">${esc(label)}</div></div>`;
 }
 
+/** Server-side bilingual helper. Wraps zh + en in spans the body-class
+ *  CSS toggle hides one of. Pairs with the client-side `bi()` in the
+ *  insights page — same render pattern, different render time. */
+function bi(zh: string, en: string): string {
+  return `<span class="zh-only">${esc(zh)}</span><span class="en-only">${esc(en)}</span>`;
+}
+
+/** Bilingual stat — same as stat() but the label has zh + en. */
+function biStat(value: string | number, zh: string, en: string): string {
+  return `<div class="stat"><div class="n">${esc(String(value))}</div><div class="l">${bi(zh, en)}</div></div>`;
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -670,16 +813,29 @@ function esc(s: string): string {
 // ===========================================================================
 
 function shell(body: string, section: string, token: string): string {
-  const tabs = ['overview', 'insights', 'activity', 'feedback', 'users', 'costs']
+  // Tab labels are bilingual — server-rendered with .zh-only / .en-only
+  // spans so the body-class CSS toggle hides one. Same trick the
+  // insights page uses; lifted here so it works on every section.
+  const tabLabels: Record<string, { zh: string; en: string }> = {
+    overview:  { zh: '总览',     en: 'Overview' },
+    insights:  { zh: 'AI 分析 ✨', en: 'Insights ✨' },
+    activity:  { zh: '调用',     en: 'Activity' },
+    feedback:  { zh: '反馈',     en: 'Feedback' },
+    users:     { zh: '用户',     en: 'Users' },
+    costs:     { zh: '成本',     en: 'Costs' },
+  };
+  const tabs = Object.keys(tabLabels)
     .map((s) => {
       const active = s === section ? 'active' : '';
-      const star   = s === 'insights' ? ' ✨' : '';
-      return `<a class="tab ${active}" href="?token=${encodeURIComponent(token)}&section=${s}">${s}${star}</a>`;
+      const lbl = tabLabels[s]!;
+      return `<a class="tab ${active}" href="?token=${encodeURIComponent(token)}&section=${s}">` +
+             `<span class="zh-only">${esc(lbl.zh)}</span><span class="en-only">${esc(lbl.en)}</span>` +
+             `</a>`;
     })
     .join('');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hans">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -816,15 +972,58 @@ function shell(body: string, section: string, token: string): string {
   .rm-row em{font-style:normal;font-weight:600;opacity:.7;margin-right:4px}
   .rm-row ol{margin:4px 0 0 0;padding-left:24px;line-height:1.55}
   .rm-row li{margin:1px 0}
+  /* Header row + global lang toggle */
+  .header-row{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+  .header-row h1{flex:1;margin:0}
+  .section-title{font-size:13px;color:var(--title);font-weight:700;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.5px;opacity:.85}
+  .section-title:first-of-type{margin-top:0}
+  /* Mini-bar inside table cells (used in activity + cost breakdowns) */
+  .mini-bar{height:8px;background:rgba(74,47,24,.06);border-radius:4px;overflow:hidden;min-width:60px}
+  .mini-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--link));border-radius:4px}
+  /* Right-aligned numeric cells */
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  /* Inline route + risk badges */
+  .route-badge{display:inline-block;padding:1px 7px;border-radius:7px;background:rgba(168,90,26,.14);color:var(--link);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .risk-tag{display:inline-block;padding:2px 7px;border-radius:9px;background:#ffe5e5;color:#c62828;font-size:10px;font-weight:600}
+  .model-cell{font-family:'SF Mono',monospace;font-size:11px;opacity:.8}
 </style>
 </head>
-<body>
+<body class="lang-zh">
 <div class="wrap">
-  <h1>🐾 KittyScan · Admin</h1>
-  <div class="sub">Live data from Cloudflare KV. Refresh to update.</div>
+  <div class="header-row">
+    <h1>🐾 KittyScan · Admin</h1>
+    <div class="lang-toggle">
+      <button id="lang-zh-btn" class="lang-btn active">中文</button>
+      <button id="lang-en-btn" class="lang-btn">EN</button>
+    </div>
+  </div>
+  <div class="sub"><span class="zh-only">来自 Cloudflare KV 的实时数据,刷新即更新</span><span class="en-only">Live data from Cloudflare KV — refresh to update</span></div>
   <div class="tabs">${tabs}</div>
   ${body}
 </div>
+<script>
+  // Persistent bilingual toggle. State in localStorage so it survives
+  // page reloads + crosses every admin section. Body class flip is the
+  // only thing that hides/shows .zh-only / .en-only spans (CSS rule
+  // already in the stylesheet).
+  (function() {
+    const KEY = 'admin-lang';
+    const zhBtn = document.getElementById('lang-zh-btn');
+    const enBtn = document.getElementById('lang-en-btn');
+    function apply(l) {
+      document.body.classList.toggle('lang-zh', l === 'zh');
+      document.body.classList.toggle('lang-en', l === 'en');
+      zhBtn.classList.toggle('active', l === 'zh');
+      enBtn.classList.toggle('active', l === 'en');
+      localStorage.setItem(KEY, l);
+      // Also update insights-page localStorage key for backward compat.
+      localStorage.setItem('insights-lang', l);
+    }
+    zhBtn.addEventListener('click', function() { apply('zh'); });
+    enBtn.addEventListener('click', function() { apply('en'); });
+    apply(localStorage.getItem(KEY) || localStorage.getItem('insights-lang') || 'zh');
+  })();
+</script>
 </body>
 </html>`;
 }
