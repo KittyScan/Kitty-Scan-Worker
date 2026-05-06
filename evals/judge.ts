@@ -19,7 +19,11 @@
 
 import type { JudgeVerdict, TestCase } from './types';
 
-const JUDGE_MODEL = 'claude-opus-4-7';
+// Defaults can be overridden by env at runtime — see runner.ts.
+// Sonnet 4.6 (cheapest cross-tier-from-analyzer-when-analyzer-is-Haiku)
+// is plenty for daily iteration. Bump to opus-4-7 for high-stakes
+// regression gates by setting JUDGE_MODEL=claude-opus-4-7.
+const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 const JUDGE_SYSTEM_PROMPT = `
@@ -61,11 +65,12 @@ export async function runJudge(
   testCase: TestCase,
   reportJson: unknown,
   apiKey: string,
-  runs: number = 3,
+  runs: number = 1,
+  model: string = DEFAULT_JUDGE_MODEL,
 ): Promise<JudgeVerdict> {
   const verdicts: JudgeVerdict[] = [];
   for (let i = 0; i < runs; i++) {
-    const v = await runJudgeOnce(testCase, reportJson, apiKey);
+    const v = await runJudgeOnce(testCase, reportJson, apiKey, model);
     if (v) verdicts.push(v);
   }
   if (verdicts.length === 0) {
@@ -78,6 +83,7 @@ async function runJudgeOnce(
   testCase: TestCase,
   reportJson: unknown,
   apiKey: string,
+  model: string,
 ): Promise<JudgeVerdict | null> {
   const userMsg = buildJudgePrompt(testCase, reportJson);
   const resp = await fetch(ANTHROPIC_URL, {
@@ -88,7 +94,7 @@ async function runJudgeOnce(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: JUDGE_MODEL,
+      model,
       max_tokens: 1500,
       system: JUDGE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: [{ type: 'text', text: userMsg }] }],

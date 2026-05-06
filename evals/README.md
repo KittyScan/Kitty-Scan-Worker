@@ -37,11 +37,20 @@ npm install
 export ANTHROPIC_API_KEY=sk-ant-…   # your raw Anthropic key for the judge
 export ADMIN_TOKEN=…                # same one the dashboard uses
 
-# All cases
+# All cases (default: Sonnet judge × 1 run, with /analyze caching)
 npx tsx evals/runner.ts
 
 # Single case
 npx tsx evals/runner.ts 02-eye-discharge
+
+# Smoke mode — run only the first case (~$0.02) for fast iteration
+npx tsx evals/runner.ts --smoke
+
+# High-stakes regression gate — Opus judge × 3 with majority vote
+JUDGE_MODEL=claude-opus-4-7 JUDGE_RUNS=3 npx tsx evals/runner.ts
+
+# Force fresh /analyze (skip cache)
+NO_CACHE=1 npx tsx evals/runner.ts
 
 # Custom prompt-version label (shows up in the report)
 PROMPT_VERSION=v3.2-trial npx tsx evals/runner.ts
@@ -100,15 +109,40 @@ view. A native diff command (`evals/diff.ts`) is on the roadmap.
 
 ## Cost
 
-One run of all 5 starter cases:
+Default config (Sonnet judge × 1 run, /analyze cached when image+prompt
+unchanged):
 
-| Step | Calls | Cost |
+| Step | Cold (no cache) | Warm (cached) |
 |---|---|---|
-| /analyze (Sonnet 4) | 5 | ~\$0.05 |
-| Judge (Opus 4 × 3 runs) | 15 | ~\$0.30 |
-| **Total** | 20 | **~\$0.35** |
+| /analyze (Sonnet 4) × 5 cases | ~\$0.05 | \$0 |
+| Judge (Sonnet 4) × 5 | ~\$0.02 | ~\$0.02 |
+| **Total** | **~\$0.07** | **~\$0.02** |
 
-Scales linearly. 50 cases ≈ \$3.50 per run.
+50 cases cold ≈ \$0.70/run. Iterating on the judge prompt (cache hits
+on every analyze) ≈ \$0.20/run.
+
+For high-stakes regression gates, escalate via env vars:
+
+```bash
+JUDGE_MODEL=claude-opus-4-7 JUDGE_RUNS=3 npx tsx evals/runner.ts
+```
+
+That's ~\$0.35/run for 5 cases — the original cost — used only when you
+need cross-tier judging + variance reduction (e.g. before merging a
+prompt PR).
+
+## Cost-cutting knobs
+
+| Env / flag | Default | What it does |
+|---|---|---|
+| `JUDGE_MODEL` | `claude-sonnet-4-6` | Set to `claude-opus-4-7` for cross-tier judging (~3× cost). |
+| `JUDGE_RUNS` | `1` | Bump to `3` for median-vote variance reduction (~3× judge cost). |
+| `NO_CACHE=1` | unset | Skip `/analyze` cache — forces a fresh model call. |
+| `--smoke` flag | off | Run only the first case for a fast cost-bounded check. |
+
+The `/analyze` cache lives in `evals/.cache/` keyed by image hash + case
+id + full prompt. Change the case context (e.g. update `expectations`)
+and the cached report is re-graded **without** re-spending on `/analyze`.
 
 ## CI integration (TODO)
 

@@ -20,10 +20,11 @@ npm-debug.log*
 # macOS
 .DS_Store
 
-# Eval images and per-run reports — local-only, big binaries, not source.
-# Test case JSON specs in evals/cases/ are tracked normally.
+# Eval images, per-run reports, and analyze-response cache — local-only,
+# not source. Test case JSON specs in evals/cases/ are tracked normally.
 evals/images/
 evals/reports/
+evals/.cache/
 
 # Editor
 .vscode/

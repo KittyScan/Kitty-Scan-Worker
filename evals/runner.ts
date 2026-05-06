@@ -16,6 +16,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestCase, CaseResult, EvalReport, Expectation } from './types';
@@ -24,6 +25,7 @@ import { renderReportHtml } from './report';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EVAL_DIR = __dirname;
+const CACHE_DIR = join(EVAL_DIR, '.cache');
 
 // Cost per million tokens — kept in sync with the production cost ledger.
 const COST_INPUT_PER_M  = 3;
@@ -33,13 +35,32 @@ async function main() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const adminToken = process.env.ADMIN_TOKEN;
   const workerUrl = process.env.WORKER_URL || 'https://carmel-worker.8fn98bvpdb.workers.dev';
-  if (!apiKey)     throw new Error('ANTHROPIC_API_KEY env var is required (for the Opus judge)');
+  if (!apiKey)     throw new Error('ANTHROPIC_API_KEY env var is required (for the judge)');
   if (!adminToken) throw new Error('ADMIN_TOKEN env var is required (or pass via .env)');
 
-  const onlyId = process.argv[2];
-  const cases = await loadCases(onlyId);
+  // Cost-cutting knobs. Defaults are tuned for daily iteration; bump
+  // judgeRuns to 3 + judgeModel to opus for high-stakes regression gates.
+  const judgeRuns  = parseInt(process.env.JUDGE_RUNS  || '1', 10);
+  const judgeModel = process.env.JUDGE_MODEL || 'claude-sonnet-4-6';
+  const noCache    = process.env.NO_CACHE === '1';
+  const smoke      = process.argv.includes('--smoke');
+
+  // Parse positional args — first non-flag argument is the case-id filter.
+  const onlyId = process.argv.slice(2).find((a) => !a.startsWith('--'));
+
+  // Smoke mode: run only the first case (sorted alphabetically) for a
+  // fast cost-bounded sanity check (~$0.02). Use during prompt iteration.
+  let cases = await loadCases(onlyId);
+  if (smoke && cases.length > 1) {
+    cases = [cases[0]!];
+    console.log(`[smoke] running only ${cases[0]!.id} for fast feedback`);
+  }
   console.log(`Loaded ${cases.length} test case${cases.length === 1 ? '' : 's'}` +
-              (onlyId ? ` (filtered to ${onlyId})` : ''));
+              (onlyId ? ` (filtered to ${onlyId})` : '') +
+              ` · judge=${judgeModel} × ${judgeRuns} run${judgeRuns > 1 ? 's' : ''}` +
+              (noCache ? ' · NO_CACHE' : ' · cache enabled'));
+
+  await fs.mkdir(CACHE_DIR, { recursive: true });
 
   const results: CaseResult[] = [];
   let skipped = 0;
@@ -51,11 +72,12 @@ async function main() {
       continue;
     }
     console.log(`\n→ ${c.id}`);
-    const result = await runCase(c, workerUrl, adminToken);
+    const result = await runCase(c, workerUrl, adminToken, !noCache);
     if (result.ok && result.report) {
-      console.log(`  /analyze ok · ${result.metrics.latencyMs}ms · $${result.metrics.usdCost.toFixed(4)}`);
+      const cacheNote = (result as { cached?: boolean }).cached ? ' · cached' : '';
+      console.log(`  /analyze ok · ${result.metrics.latencyMs}ms · $${result.metrics.usdCost.toFixed(4)}${cacheNote}`);
       try {
-        result.judge = await runJudge(c, result.report, apiKey, 3);
+        result.judge = await runJudge(c, result.report, apiKey, judgeRuns, judgeModel);
         console.log(`  judge ${result.judge.overall}/5 · halluc=${result.judge.hallucinations.length}`);
       } catch (e) {
         console.warn(`  judge failed: ${(e as Error).message}`);
@@ -66,7 +88,7 @@ async function main() {
     results.push(result);
   }
 
-  const report = aggregate(results, skipped, workerUrl);
+  const report = aggregate(results, skipped, workerUrl, judgeModel, judgeRuns);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const jsonPath = join(EVAL_DIR, 'reports', `${stamp}.json`);
   const htmlPath = join(EVAL_DIR, 'reports', `${stamp}.html`);
@@ -91,12 +113,38 @@ async function runCase(
   c: TestCase,
   workerUrl: string,
   adminToken: string,
-): Promise<CaseResult> {
+  cacheEnabled: boolean,
+): Promise<CaseResult & { cached?: boolean }> {
   const imagePath = join(EVAL_DIR, c.image);
   const imageBuf = await fs.readFile(imagePath);
   const imageB64 = imageBuf.toString('base64');
 
   const prompt = buildPrompt(c);
+
+  // Cache key: image hash + prompt + case id. If we've seen this exact
+  // input before, skip the /analyze round-trip and reuse the cached
+  // response. This is the biggest cost-saver during judge-prompt
+  // iteration — analyze is the per-case fixed cost, judge is variable.
+  const cacheKey = createHash('sha256')
+    .update(c.id)
+    .update(prompt)
+    .update(imageBuf)
+    .digest('hex')
+    .slice(0, 16);
+  const cachePath = join(CACHE_DIR, `${c.id}-${cacheKey}.json`);
+
+  if (cacheEnabled) {
+    try {
+      const cached = JSON.parse(await fs.readFile(cachePath, 'utf-8')) as CaseResult;
+      // Re-evaluate expectations against the cached report (cheap, deterministic) —
+      // a case-spec change since the cache was written should still re-grade
+      // structural pass/fail without re-spending on /analyze.
+      const checks = cached.report
+        ? c.expectations.map((e) => ({ expectation: e, ...evaluate(e, cached.report!) }))
+        : cached.checks;
+      return { ...cached, checks, cached: true };
+    } catch { /* miss — fall through to live call */ }
+  }
 
   const t0 = Date.now();
   const resp = await fetch(`${workerUrl}/analyze`, {
@@ -143,7 +191,7 @@ async function runCase(
         expectation: e, passed: false, actual: null, note: 'report unparseable',
       }));
 
-  return {
+  const result: CaseResult = {
     caseId: c.id,
     ok: !!report,
     report,
@@ -151,6 +199,16 @@ async function runCase(
     metrics: { latencyMs, inputTokens: inTok, outputTokens: outTok, usdCost: usd },
     error: report ? undefined : 'report unparseable from /analyze response',
   };
+
+  // Persist the analyze response so the next run with the same image +
+  // prompt skips the round-trip. Judge results are NOT cached — judging
+  // is what we typically iterate on.
+  if (cacheEnabled && result.ok) {
+    try { await fs.writeFile(cachePath, JSON.stringify(result, null, 2)); }
+    catch { /* cache write is best-effort */ }
+  }
+
+  return result;
 }
 
 // =========================================================
@@ -225,7 +283,13 @@ function buildPrompt(c: TestCase): string {
 // Aggregation
 // =========================================================
 
-function aggregate(results: CaseResult[], skipped: number, workerUrl: string): EvalReport {
+function aggregate(
+  results: CaseResult[],
+  skipped: number,
+  workerUrl: string,
+  judgeModel: string,
+  judgeRuns: number,
+): EvalReport {
   const completed = results.filter(r => r.ok && r.report);
   const lats = completed.map(r => r.metrics.latencyMs).sort((a, b) => a - b);
   const allChecks = results.flatMap(r => r.checks);
@@ -277,8 +341,8 @@ function aggregate(results: CaseResult[], skipped: number, workerUrl: string): E
     cases: results,
     config: {
       workerUrl,
-      judgeModel: 'claude-opus-4-7',
-      judgeRuns: 3,
+      judgeModel,
+      judgeRuns,
     },
   };
 }
